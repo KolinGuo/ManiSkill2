@@ -88,7 +88,6 @@ class PickCubeEnv(StationaryManipulationEnv):
         ''' Calculate the current costs and return a dict '''
         cost = {}
 
-        # tcp_to_obj_dict < 0.05
         tcp_to_obj_pos = self.obj.pose.p - self.tcp.pose.p
         tcp_to_obj_dist = np.linalg.norm(tcp_to_obj_pos)
         cost["tcp_to_obj_dist"] = tcp_to_obj_dist
@@ -133,6 +132,23 @@ class PickCubeEnv(StationaryManipulationEnv):
     def set_state(self, state):
         self.goal_pos = state[-3:]
         super().set_state(state[:-3])
+
+
+@register_env("Cost/PickCube-v0", max_episode_steps=200)
+class PickCubeCostEnv(PickCubeEnv):
+    def __init__(self, *args, tcp_to_obj_dist_thres=0.02, **kwargs):
+        self.tcp_to_obj_dist_thres = tcp_to_obj_dist_thres
+        super().__init__(*args, **kwargs)
+
+    def get_cost(self) -> dict:
+        ''' Calculate the current costs (after subtracting threshold) '''
+        cost = super().get_cost()
+
+        # tcp_to_obj_dict < 0.02
+        cost["cost_tcp_to_obj_dist"] \
+                = cost["tcp_to_obj_dist"] - self.tcp_to_obj_dist_thres
+
+        return cost
 
 
 @register_env("LiftCube-v0", max_episode_steps=200)

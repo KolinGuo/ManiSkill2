@@ -46,10 +46,11 @@ class StationaryManipulationEnv(BaseEnv):
         else:
             return builder.build(name)
 
-    def _build_sphere_site(self, radius, color=(0, 1, 0), name="goal_site"):
+    def _build_sphere_site(self, radius, pose=Pose(),
+                           color=(0, 1, 0), name="goal_site"):
         """Build a sphere site (visual only). Used to indicate goal position."""
         builder = self._scene.create_actor_builder()
-        builder.add_sphere_visual(radius=radius, color=color)
+        builder.add_sphere_visual(pose=pose, radius=radius, color=color)
         sphere = builder.build_static(name)
         # NOTE(jigu): Must hide after creation to avoid pollute observations!
         sphere.hide_visual()
