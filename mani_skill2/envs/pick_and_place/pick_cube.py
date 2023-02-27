@@ -76,11 +76,24 @@ class PickCubeEnv(StationaryManipulationEnv):
     def evaluate(self, **kwargs):
         is_obj_placed = self.check_obj_placed()
         is_robot_static = self.check_robot_static()
-        return dict(
+        eval_dict = dict(
             is_obj_placed=is_obj_placed,
             is_robot_static=is_robot_static,
             success=is_obj_placed and is_robot_static,
         )
+        eval_dict.update(self.get_cost())
+        return eval_dict
+
+    def get_cost(self) -> dict:
+        ''' Calculate the current costs and return a dict '''
+        cost = {}
+
+        # tcp_to_obj_dict < 0.05
+        tcp_to_obj_pos = self.obj.pose.p - self.tcp.pose.p
+        tcp_to_obj_dist = np.linalg.norm(tcp_to_obj_pos)
+        cost["tcp_to_obj_dist"] = tcp_to_obj_dist
+
+        return cost
 
     def compute_dense_reward(self, info, **kwargs):
         reward = 0.0
@@ -173,3 +186,23 @@ class LiftCubeEnv(PickCubeEnv):
             reward += lifting_reward
 
         return reward
+
+
+@register_env("PickCubeRegion-v0", max_episode_steps=200)
+class PickCubeRegionEnv(PickCubeEnv):
+    goal_thresh = 0.2
+    min_goal_dist = 0.5
+    goal_pose = Pose(p=[0, 0.5, 0.2])
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def _load_actors(self):
+        self._add_ground(render=self.bg_name is None)
+        self.obj = self._build_cube(self.cube_half_size)
+        self.goal_site = self._build_sphere_site(self.goal_thresh,
+                                                 pose=self.goal_pose)
+
+    def _initialize_task(self, max_trials=100, verbose=False):
+        self.goal_pos = self.goal_site.pose.p
+        pass
