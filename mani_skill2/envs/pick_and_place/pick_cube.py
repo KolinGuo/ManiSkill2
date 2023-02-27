@@ -150,6 +150,23 @@ class PickCubeCostEnv(PickCubeEnv):
 
         return cost
 
+    def compute_dense_reward(self, info, **kwargs):
+        reward = 0.0
+
+        if info["success"]:
+            reward += 5
+            return reward
+
+        is_grasped = self.agent.check_grasp(self.obj, max_angle=30)
+        reward += 1 if is_grasped else 0.0
+
+        if is_grasped:
+            obj_to_goal_dist = np.linalg.norm(self.goal_pos - self.obj.pose.p)
+            place_reward = 1 - np.tanh(5 * obj_to_goal_dist)
+            reward += place_reward
+
+        return reward
+
 
 @register_env("LiftCube-v0", max_episode_steps=200)
 class LiftCubeEnv(PickCubeEnv):
