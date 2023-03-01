@@ -72,3 +72,11 @@ class Panda(BaseAgent):
         T[:3, :3] = np.stack([ortho, closing, approaching], axis=1)
         T[:3, 3] = center
         return sapien.Pose.from_transformation_matrix(T)
+
+
+class FloatingPanda(Panda):
+    _config: defaults.FloatingPandaDefaultConfig
+
+    @classmethod
+    def get_default_config(cls):
+        return defaults.FloatingPandaDefaultConfig()

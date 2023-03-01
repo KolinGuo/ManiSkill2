@@ -193,6 +193,73 @@ class PandaDefaultConfig:
         )
 
 
+class FloatingPandaDefaultConfig(PandaDefaultConfig):
+    def __init__(self) -> None:
+        super().__init__()
+
+        self.urdf_path = "{PACKAGE_ASSET_DIR}/descriptions/panda_floating.urdf"
+
+        self.arm_joint_names = [
+            "x_axis_joint",
+            "y_axis_joint",
+            "z_axis_joint",
+            "x_rotation_joint",
+            "y_rotation_joint",
+            "z_rotation_joint",
+        ]
+
+    @property
+    def controllers(self):
+        # -------------------------------------------------------------------------- #
+        # Arm
+        # -------------------------------------------------------------------------- #
+        arm_pd_joint_delta_pos = PDJointPosControllerConfig(
+            self.arm_joint_names,
+            -0.1,
+            0.1,
+            self.arm_stiffness,
+            self.arm_damping,
+            self.arm_force_limit,
+            use_delta=True,
+        )
+
+        arm_pd_joint_delta_pos_vel = PDJointPosVelControllerConfig(
+            self.arm_joint_names,
+            -0.1,
+            0.1,
+            self.arm_stiffness,
+            self.arm_damping,
+            self.arm_force_limit,
+            use_delta=True,
+        )
+
+        # -------------------------------------------------------------------------- #
+        # Gripper
+        # -------------------------------------------------------------------------- #
+        # NOTE(jigu): IssacGym uses large P and D but with force limit
+        # However, tune a good force limit to have a good mimic behavior
+        gripper_pd_joint_pos = PDJointPosMimicControllerConfig(
+            self.gripper_joint_names,
+            -0.01,  # a trick to have force when the object is thin
+            0.04,
+            self.gripper_stiffness,
+            self.gripper_damping,
+            self.gripper_force_limit,
+        )
+
+        controller_configs = dict(
+            pd_joint_delta_pos=dict(
+                arm=arm_pd_joint_delta_pos, gripper=gripper_pd_joint_pos
+            ),
+            pd_joint_delta_pos_vel=dict(
+                arm=arm_pd_joint_delta_pos_vel, gripper=gripper_pd_joint_pos
+            ),
+        )
+
+        # Make a deepcopy in case users modify any config
+        return deepcopy_dict(controller_configs)
+
+
 class PandaRealSensed435Config(PandaDefaultConfig):
     def __init__(self) -> None:
         super().__init__()
