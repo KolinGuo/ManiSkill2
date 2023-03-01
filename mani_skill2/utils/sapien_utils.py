@@ -1,6 +1,6 @@
 from contextlib import contextmanager
 from copy import deepcopy
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union, Sequence
 
 import numpy as np
 import sapien.core as sapien
@@ -78,6 +78,21 @@ def get_entity_by_name(entities, name: str, is_unique=True):
         return matched_entities[0]
     else:
         return None
+
+
+def get_entities_by_names(entities: Sequence[sapien.Entity],
+                          names: Union[str, Sequence[str]],
+                          is_unique=True):
+    """Get a sequence of Sapien.Entity given the names."""
+    assert isinstance(entities, (list, tuple)), type(entities)
+
+    if isinstance(names, str):
+        return get_entity_by_name(entities, names, is_unique)
+
+    ret = []
+    for name in names:
+        ret.append(get_entity_by_name(entities, name, is_unique))
+    return ret
 
 
 def check_urdf_config(urdf_config: dict):

@@ -1,3 +1,4 @@
+from typing import Type, Union
 from collections import OrderedDict
 
 import numpy as np
@@ -6,6 +7,8 @@ import trimesh
 from sapien.core import Pose
 from scipy.spatial import distance as sdist
 
+from mani_skill2.agents.base_agent import BaseAgent
+from mani_skill2.agents.robots.panda import FloatingPanda
 from mani_skill2.agents.robots.mobile_panda import MobilePandaSingleArm
 from mani_skill2.utils.common import np_random, random_choice
 from mani_skill2.utils.geometry import angle_distance, transform_points
@@ -27,11 +30,15 @@ def clip_and_normalize(x, a_min, a_max=None):
 
 
 class OpenCabinetEnv(MS1BaseEnv):
+    SUPPORTED_ROBOTS = {"floating_panda": FloatingPanda,
+                        "mobile_panda_single_arm": MobilePandaSingleArm}
     ASSET_UID = "partnet_mobility_cabinet"
     MAX_DOF = 8
-    agent: MobilePandaSingleArm
+    agent: Union[FloatingPanda, MobilePandaSingleArm]
 
-    def __init__(self, *args, fixed_target_link_idx: int = None, **kwargs):
+    def __init__(self, *args, robot="mobile_panda_single_arm",
+                 fixed_target_link_idx: int = None, **kwargs):
+        self.robot_uid = robot
         # The index in target links (not all links)
         self._fixed_target_link_idx = fixed_target_link_idx
         self._cache_bboxes = {}
@@ -145,10 +152,12 @@ class OpenCabinetEnv(MS1BaseEnv):
                 s.set_collision_groups(g0, g1, g2 | 1 << 31, g3)
 
     def _configure_agent(self):
-        self._agent_cfg = MobilePandaSingleArm.get_default_config()
+        agent_cls: Type[BaseAgent] = self.SUPPORTED_ROBOTS[self.robot_uid]
+        self._agent_cfg = agent_cls.get_default_config()
 
     def _load_agent(self):
-        self.agent = MobilePandaSingleArm(
+        agent_cls: Type[Panda] = self.SUPPORTED_ROBOTS[self.robot_uid]
+        self.agent = agent_cls(
             self._scene, self._control_freq, self._control_mode, config=self._agent_cfg
         )
 
@@ -187,23 +196,37 @@ class OpenCabinetEnv(MS1BaseEnv):
         self.cabinet.set_pose(Pose([0, 0, -bounds[0, 2]]))
 
     def _initialize_robot(self):
-        # Base position
-        # The forward direction of cabinets is -x.
-        center = np.array([0, 0.8])
-        dist = self._episode_rng.uniform(1.6, 1.8)
-        theta = self._episode_rng.uniform(0.9 * np.pi, 1.1 * np.pi)
-        direction = np.array([np.cos(theta), np.sin(theta)])
-        xy = center + direction * dist
+        if self.robot_uid == "floating_panda":
+            # fmt: off
+            qpos = np.array(
+                [-1.0, 0.0, 0.4201038, 0.0, -1.57, 1.57, 0.02, 0.02]
+            )
+            # fmt: on
+            qpos[:-2] += self._episode_rng.normal(
+                0, 0.02, len(qpos) - 2
+            )
+            self.agent.reset(qpos)
+            self.agent.robot.set_pose(Pose([0.0, 0.0, 0.0]))
+        elif self.robot_uid == "mobile_panda_single_arm":
+            # Base position
+            # The forward direction of cabinets is -x.
+            center = np.array([0, 0.8])
+            dist = self._episode_rng.uniform(1.6, 1.8)
+            theta = self._episode_rng.uniform(0.9 * np.pi, 1.1 * np.pi)
+            direction = np.array([np.cos(theta), np.sin(theta)])
+            xy = center + direction * dist
 
-        # Base orientation
-        noise_ori = self._episode_rng.uniform(-0.05 * np.pi, 0.05 * np.pi)
-        ori = (theta - np.pi) + noise_ori
+            # Base orientation
+            noise_ori = self._episode_rng.uniform(-0.05 * np.pi, 0.05 * np.pi)
+            ori = (theta - np.pi) + noise_ori
 
-        h = 1e-4
-        arm_qpos = np.array([0, 0, 0, -1.5, 0, 3, 0.78, 0.02, 0.02])
+            h = 1e-4
+            arm_qpos = np.array([0, 0, 0, -1.5, 0, 3, 0.78, 0.02, 0.02])
 
-        qpos = np.hstack([xy, ori, h, arm_qpos])
-        self.agent.reset(qpos)
+            qpos = np.hstack([xy, ori, h, arm_qpos])
+            self.agent.reset(qpos)
+        else:
+            raise NotImplementedError(self.robot_uid)
 
     def _set_joint_physical_parameters(self):
         for joint in self.cabinet.get_active_joints():

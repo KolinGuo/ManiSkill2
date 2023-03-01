@@ -1,11 +1,12 @@
 import numpy as np
 import sapien.core as sapien
+from sapien.core import Pose
 
 from mani_skill2.agents.base_agent import BaseAgent
 from mani_skill2.agents.configs.panda import defaults
 from mani_skill2.utils.common import compute_angle_between
 from mani_skill2.utils.sapien_utils import (
-    get_entity_by_name,
+    get_entities_by_names,
     get_pairwise_contact_impulse,
 )
 
@@ -18,11 +19,16 @@ class Panda(BaseAgent):
         return defaults.PandaDefaultConfig()
 
     def _after_init(self):
-        self.finger1_link: sapien.LinkBase = get_entity_by_name(
-            self.robot.get_links(), "panda_leftfinger"
+        self.finger1_joint, self.finger2_joint = get_entities_by_names(
+            self.robot.get_joints(),
+            ["panda_finger_joint1", "panda_finger_joint2"],
         )
-        self.finger2_link: sapien.LinkBase = get_entity_by_name(
-            self.robot.get_links(), "panda_rightfinger"
+        self.finger1_link, self.finger2_link = get_entities_by_names(
+            self.robot.get_links(),
+            ["panda_leftfinger", "panda_rightfinger"],
+        )
+        self.hand: sapien.LinkBase = get_entities_by_names(
+            self.robot.get_links(), "panda_hand"
         )
 
     def check_grasp(self, actor: sapien.ActorBase, min_impulse=1e-6, max_angle=85):
@@ -72,6 +78,41 @@ class Panda(BaseAgent):
         T[:3, :3] = np.stack([ortho, closing, approaching], axis=1)
         T[:3, 3] = center
         return sapien.Pose.from_transformation_matrix(T)
+
+    def get_fingers_info(self):
+        fingers_pos = self.get_ee_coords().flatten()
+        fingers_vel = self.get_ee_vels().flatten()
+        return {
+            "fingers_pos": fingers_pos,
+            "fingers_vel": fingers_vel,
+        }
+
+    def get_ee_coords(self):
+        finger_tips = [
+            self.finger2_joint.get_global_pose().transform(Pose([0, 0.035, 0])).p,
+            self.finger1_joint.get_global_pose().transform(Pose([0, -0.035, 0])).p,
+        ]
+        return np.array(finger_tips)
+
+    def get_ee_vels(self):
+        finger_vels = [
+            self.finger2_link.get_velocity(),
+            self.finger1_link.get_velocity(),
+        ]
+        return np.array(finger_vels)
+
+    def get_ee_coords_sample(self):
+        l = 0.0355
+        r = 0.052
+        ret = []
+        for i in range(10):
+            x = (l * i + (4 - i) * r) / 4
+            finger_tips = [
+                self.finger2_joint.get_global_pose().transform(Pose([0, x, 0])).p,
+                self.finger1_joint.get_global_pose().transform(Pose([0, -x, 0])).p,
+            ]
+            ret.append(finger_tips)
+        return np.array(ret).transpose((1, 0, 2))
 
 
 class FloatingPanda(Panda):
