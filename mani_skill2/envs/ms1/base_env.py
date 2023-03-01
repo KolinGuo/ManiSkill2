@@ -39,8 +39,9 @@ class MS1BaseEnv(BaseEnv):
         model_json = format_path(model_json)
         self.model_db: Dict[str, Dict] = load_json(model_json)
 
-        if isinstance(model_ids, str):
-            model_ids = [model_ids]
+        if isinstance(model_ids, str) or isinstance(model_ids, int):
+            model_ids = [str(model_ids)]
+        model_ids = [str(_id) for _id in model_ids]
         if len(model_ids) == 0:
             model_ids = sorted(self.model_db.keys())
         assert len(model_ids) > 0, model_json
