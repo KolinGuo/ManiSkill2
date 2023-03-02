@@ -35,7 +35,12 @@ def rotation_between_vec(a, b):  # from a to b
     a = a / np.linalg.norm(a)
     b = b / np.linalg.norm(b)
     axis = np.cross(a, b)
-    axis = axis / np.linalg.norm(axis)  # norm might be 0
+    if np.isclose(np.linalg.norm(axis), 0.0):  # colinear a, b; axis is perpendicular to a
+        x = np.random.rand(3)
+        x -= x @ a * a
+        axis = x / np.linalg.norm(x)
+    else:
+        axis = axis / np.linalg.norm(axis)
     angle = np.arccos(a @ b)
     R = Rotation.from_rotvec(axis * angle)
     return R
