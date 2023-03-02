@@ -16,9 +16,13 @@ class PickCubeEnv(StationaryManipulationEnv):
     goal_thresh = 0.025
     min_goal_dist = 0.05
 
-    def __init__(self, *args, obj_init_rot_z=True, **kwargs):
+    def __init__(self, *args, obj_init_rot_z=True,
+                 softer_check_grasp=False, static_reward=False,
+                 **kwargs):
         self.obj_init_rot_z = obj_init_rot_z
         self.cube_half_size = np.array([0.02] * 3, np.float32)
+        self.softer_check_grasp = softer_check_grasp
+        self.static_reward = static_reward
         super().__init__(*args, **kwargs)
 
     def _load_actors(self):
@@ -106,13 +110,22 @@ class PickCubeEnv(StationaryManipulationEnv):
         reaching_reward = 1 - np.tanh(5 * tcp_to_obj_dist)
         reward += reaching_reward
 
-        is_grasped = self.agent.check_grasp(self.obj, max_angle=30)
+        if self.softer_check_grasp:
+            is_grasped = self.agent.check_grasp(self.obj)
+        else:
+            is_grasped = self.agent.check_grasp(self.obj, max_angle=30)
         reward += 1 if is_grasped else 0.0
 
         if is_grasped:
             obj_to_goal_dist = np.linalg.norm(self.goal_pos - self.obj.pose.p)
             place_reward = 1 - np.tanh(5 * obj_to_goal_dist)
             reward += place_reward
+
+            # static reward
+            if self.static_reward and self.check_obj_placed():
+                qvel = self.agent.robot.get_qvel()[:-2]
+                static_reward = 1 - np.tanh(5 * np.linalg.norm(qvel))
+                reward += static_reward
 
         return reward
 
