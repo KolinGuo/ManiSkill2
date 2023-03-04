@@ -81,6 +81,7 @@ class PickCubeEnv(StationaryManipulationEnv):
         is_obj_placed = self.check_obj_placed()
         is_robot_static = self.check_robot_static()
         eval_dict = dict(
+            is_obj_grasped=self.agent.check_grasp(self.obj),
             is_obj_placed=is_obj_placed,
             is_robot_static=is_robot_static,
             success=is_obj_placed and is_robot_static,
