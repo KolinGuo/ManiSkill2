@@ -25,6 +25,7 @@ def parse_args():
     parser.add_argument("-c", "--control-mode", type=str, default="pd_ee_delta_pose")
     parser.add_argument("--render-mode", type=str, default="cameras")
     parser.add_argument("--enable-sapien-viewer", action="store_true")
+    parser.add_argument("--show-contact", action="store_true")
     parser.add_argument("--record-dir", type=str)
     args, opts = parser.parse_known_args()
 
@@ -73,6 +74,24 @@ def main():
         env.render(mode="human")
     opencv_viewer = OpenCVViewer(exit_on_esc=False)
 
+    if args.show_contact:
+        from mani_skill2.utils.visualization.viewer_wrapper import SapienViewerWrapper
+        env = SapienViewerWrapper(env)
+
+        def update_gripper_direction(env):
+            ldirection = env.agent.finger1_link.pose.to_transformation_matrix()[:3, 1]
+            rdirection = -env.agent.finger2_link.pose.to_transformation_matrix()[:3, 1]
+
+            vector_kwargs = dict(scale=[0.1] * 3)
+            env.update_vectors({
+                'ldirection': vector_kwargs | dict(pos=env.agent.finger1_link.pose.p,
+                                                   heading=ldirection, color='red'),
+                'rdirection': vector_kwargs | dict(pos=env.agent.finger2_link.pose.p,
+                                                   heading=rdirection, color='blue'),
+            })
+        env.show_contact_visualization(env.agent.finger1_link, env.obj, False)
+        env.show_contact_visualization(env.agent.finger2_link, env.obj, False)
+
     def render_wait():
         if not args.enable_sapien_viewer:
             return
@@ -93,6 +112,8 @@ def main():
         # Visualization
         # -------------------------------------------------------------------------- #
         if args.enable_sapien_viewer:
+            if args.show_contact:
+                update_gripper_direction(env)
             env.render(mode="human")
 
         render_frame = env.render(mode=args.render_mode)
@@ -166,17 +187,17 @@ def main():
                 ee_action[2] = -EE_ACTION
 
             # Rotation (axis-angle)
-            if key == "1":
+            if key == "5":  # +x-axis
                 ee_action[3:6] = (1, 0, 0)
-            elif key == "2":
+            elif key == "2":  # -x-axis
                 ee_action[3:6] = (-1, 0, 0)
-            elif key == "3":
+            elif key == "1":  # +y-axis
                 ee_action[3:6] = (0, 1, 0)
-            elif key == "4":
+            elif key == "3":  # -y-axis
                 ee_action[3:6] = (0, -1, 0)
-            elif key == "5":
+            elif key == "4":  # +z-axis
                 ee_action[3:6] = (0, 0, 1)
-            elif key == "6":
+            elif key == "6":  # -z-axis
                 ee_action[3:6] = (0, 0, -1)
 
         # Gripper
@@ -188,7 +209,9 @@ def main():
 
         # Other functions
         if key == "0":  # switch to SAPIEN viewer
+            print("[ INFO ] Switching to SAPIEN viewer")
             render_wait()
+            print("[ INFO ] Switching back from SAPIEN viewer")
         elif key == "r":  # reset env
             obs = env.reset()
             gripper_action = 1
