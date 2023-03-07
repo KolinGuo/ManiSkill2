@@ -164,8 +164,11 @@ class PickCubeEnv(StationaryManipulationEnv):
 
 @register_env("Cost/PickCube-v0", max_episode_steps=200)
 class PickCubeCostEnv(PickCubeEnv):
-    def __init__(self, *args, tcp_to_obj_dist_thres=0.02, **kwargs):
+    def __init__(self, *args, tcp_to_obj_dist_thres=0.02,
+                 no_check_grasp=False,
+                 **kwargs):
         self.tcp_to_obj_dist_thres = tcp_to_obj_dist_thres
+        self.no_check_grasp = no_check_grasp
         super().__init__(*args, **kwargs)
 
     def get_cost(self) -> dict:
@@ -185,13 +188,25 @@ class PickCubeCostEnv(PickCubeEnv):
             reward += 5
             return reward
 
-        is_grasped = self.agent.check_grasp(self.obj, max_angle=30)
+        if self.no_check_grasp:
+            is_grasped = False
+        elif self.softer_check_grasp:
+            is_grasped = self.agent.check_grasp(self.obj)
+        else:
+            is_grasped = self.agent.check_grasp(self.obj, max_angle=30)
+
         reward += 1 if is_grasped else 0.0
 
-        if is_grasped:
+        if is_grasped or self.no_check_grasp:
             obj_to_goal_dist = np.linalg.norm(self.goal_pos - self.obj.pose.p)
             place_reward = 1 - np.tanh(5 * obj_to_goal_dist)
             reward += place_reward
+
+            # static reward
+            if self.static_reward and self.check_obj_placed():
+                qvel = self.agent.robot.get_qvel()[:-2]
+                static_reward = 1 - np.tanh(5 * np.linalg.norm(qvel))
+                reward += static_reward
 
         return reward
 
