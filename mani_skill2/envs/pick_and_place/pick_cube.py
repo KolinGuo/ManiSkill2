@@ -18,11 +18,13 @@ class PickCubeEnv(StationaryManipulationEnv):
 
     def __init__(self, *args, obj_init_rot_z=True,
                  softer_check_grasp=False, static_reward=False,
+                 stage_indicator_obs=False,
                  **kwargs):
         self.obj_init_rot_z = obj_init_rot_z
         self.cube_half_size = np.array([0.02] * 3, np.float32)
         self.softer_check_grasp = softer_check_grasp
         self.static_reward = static_reward
+        self.stage_indicator_obs = stage_indicator_obs
         super().__init__(*args, **kwargs)
 
     def _load_actors(self):
@@ -67,6 +69,18 @@ class PickCubeEnv(StationaryManipulationEnv):
                 tcp_to_obj_pos=self.obj.pose.p - self.tcp.pose.p,
                 obj_to_goal_pos=self.goal_pos - self.obj.pose.p,
             )
+            if self.stage_indicator_obs:
+                is_obj_placed = self.check_obj_placed()
+                is_robot_static = self.check_robot_static()
+                if is_robot_static and is_obj_placed:
+                    stage_indicator = 3
+                elif is_obj_placed:
+                    stage_indicator = 2
+                elif self.agent.check_grasp(self.obj):
+                    stage_indicator = 1
+                else:
+                    stage_indicator = 0
+                obs.update(stage_indicator=stage_indicator)
         return obs
 
     def check_obj_placed(self):
