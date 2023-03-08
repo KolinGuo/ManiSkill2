@@ -12,6 +12,8 @@ from .base_env import StationaryManipulationEnv
 
 
 @register_env("PickCube-v0", max_episode_steps=200)
+@register_env("PickCube-v1", max_episode_steps=200,
+              softer_check_grasp=True, static_reward=True)
 class PickCubeEnv(StationaryManipulationEnv):
     goal_thresh = 0.025
     min_goal_dist = 0.05
@@ -111,6 +113,8 @@ class PickCubeEnv(StationaryManipulationEnv):
         tcp_to_obj_dist = np.linalg.norm(tcp_to_obj_pos)
         cost["tcp_to_obj_dist"] = tcp_to_obj_dist
 
+        obj_to_goal_dist = np.linalg.norm(self.goal_pos - self.obj.pose.p)
+        cost["obj_to_goal_dist"] = obj_to_goal_dist
         return cost
 
     def compute_dense_reward(self, info, **kwargs):
@@ -120,24 +124,23 @@ class PickCubeEnv(StationaryManipulationEnv):
             reward += 5
             return reward
 
-        tcp_to_obj_pos = self.obj.pose.p - self.tcp.pose.p
-        tcp_to_obj_dist = np.linalg.norm(tcp_to_obj_pos)
+        tcp_to_obj_dist = info["tcp_to_obj_dist"]
         reaching_reward = 1 - np.tanh(5 * tcp_to_obj_dist)
         reward += reaching_reward
 
         if self.softer_check_grasp:
-            is_grasped = self.agent.check_grasp(self.obj)
+            is_grasped = info["is_obj_grasped"]
         else:
             is_grasped = self.agent.check_grasp(self.obj, max_angle=30)
         reward += 1 if is_grasped else 0.0
 
         if is_grasped:
-            obj_to_goal_dist = np.linalg.norm(self.goal_pos - self.obj.pose.p)
+            obj_to_goal_dist = info["obj_to_goal_dist"]
             place_reward = 1 - np.tanh(5 * obj_to_goal_dist)
             reward += place_reward
 
             # static reward
-            if self.static_reward and self.check_obj_placed():
+            if self.static_reward and info["is_obj_placed"]:
                 qvel = self.agent.robot.get_qvel()[:-2]
                 static_reward = 1 - np.tanh(5 * np.linalg.norm(qvel))
                 reward += static_reward
@@ -163,6 +166,8 @@ class PickCubeEnv(StationaryManipulationEnv):
 
 
 @register_env("Cost/PickCube-v0", max_episode_steps=200)
+@register_env("Cost/PickCube-v1", max_episode_steps=200,
+              softer_check_grasp=True, static_reward=True)
 class PickCubeCostEnv(PickCubeEnv):
     def __init__(self, *args, tcp_to_obj_dist_thres=0.02,
                  no_check_grasp=False,
