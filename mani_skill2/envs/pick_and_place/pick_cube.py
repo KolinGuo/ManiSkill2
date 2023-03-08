@@ -196,19 +196,19 @@ class PickCubeCostEnv(PickCubeEnv):
         if self.no_check_grasp:
             is_grasped = False
         elif self.softer_check_grasp:
-            is_grasped = self.agent.check_grasp(self.obj)
+            is_grasped = info["is_obj_grasped"]
         else:
             is_grasped = self.agent.check_grasp(self.obj, max_angle=30)
 
         reward += 1 if is_grasped else 0.0
 
         if is_grasped or self.no_check_grasp:
-            obj_to_goal_dist = np.linalg.norm(self.goal_pos - self.obj.pose.p)
+            obj_to_goal_dist = info["obj_to_goal_dist"]
             place_reward = 1 - np.tanh(5 * obj_to_goal_dist)
             reward += place_reward
 
             # static reward
-            if self.static_reward and self.check_obj_placed():
+            if self.static_reward and info["is_obj_placed"]:
                 qvel = self.agent.robot.get_qvel()[:-2]
                 static_reward = 1 - np.tanh(5 * np.linalg.norm(qvel))
                 reward += static_reward
