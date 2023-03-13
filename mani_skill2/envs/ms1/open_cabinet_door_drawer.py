@@ -23,6 +23,7 @@ from .base_env import MS1BaseEnv
 
 
 def clip_and_normalize(x, a_min, a_max=None):
+    """clip between [a_min, a_max] and normalize to be between [0, 1]"""
     if a_max is None:
         a_max = np.abs(a_min)
         a_min = -a_max
@@ -301,16 +302,19 @@ class OpenCabinetEnv(MS1BaseEnv):
             open_enough=link_qpos >= self.target_qpos,
         )
 
-        return dict(
+        eval_dict = dict(
             success=all(flags.values()),
             **flags,
             link_vel_norm=vel_norm,
             link_ang_vel_norm=ang_vel_norm,
             link_qpos=link_qpos
         )
+        eval_dict.update(self.get_cost())
+        return eval_dict
 
-    def compute_dense_reward(self, *args, info: dict, **kwargs):
-        reward = 0.0
+    def get_cost(self) -> dict:
+        ''' Calculate the current costs and return a dict '''
+        cost = {}
 
         # -------------------------------------------------------------------------- #
         # The end-effector should be close to the target pose
@@ -326,8 +330,7 @@ class OpenCabinetEnv(MS1BaseEnv):
         # trimesh.PointCloud(handle_pcd).show()
         disp_ee_to_handle = sdist.cdist(ee_coords.reshape(-1, 3), handle_pcd)
         dist_ee_to_handle = disp_ee_to_handle.reshape(2, -1).min(-1)  # [2]
-        reward_ee_to_handle = -dist_ee_to_handle.mean() * 2
-        reward += reward_ee_to_handle
+        cost["dist_ee_to_handle"] = dist_ee_to_handle.mean()
 
         # Encourage grasping the handle
         ee_center_at_world = ee_coords.mean(0)  # [10, 3]
@@ -339,11 +342,7 @@ class OpenCabinetEnv(MS1BaseEnv):
             ee_center_at_handle
         )
         # print("SDF", dist_ee_center_to_handle)
-        dist_ee_center_to_handle = dist_ee_center_to_handle.max()
-        reward_ee_center_to_handle = (
-            clip_and_normalize(dist_ee_center_to_handle, -0.01, 4e-3) - 1
-        )
-        reward += reward_ee_center_to_handle
+        cost["dist_ee_center_to_handle"] = dist_ee_center_to_handle.max()
 
         # pointer = trimesh.creation.icosphere(radius=0.02, color=(1, 0, 0))
         # trimesh.Scene([self.target_handle_mesh, trimesh.PointCloud(ee_center_at_handle)]).show()
@@ -354,7 +353,37 @@ class OpenCabinetEnv(MS1BaseEnv):
         angles_ee_to_grasp_poses = [
             angle_distance(ee_pose, x) for x in target_grasp_poses
         ]
-        ee_rot_reward = -min(angles_ee_to_grasp_poses) / np.pi * 3
+        cost["angles_ee_to_grasp_poses"] = min(angles_ee_to_grasp_poses)
+
+        ee_close_to_handle = (
+            dist_ee_to_handle.max() <= 0.01 and dist_ee_center_to_handle > 0
+        )
+        cost["ee_close_to_handle"] = ee_close_to_handle
+
+        return cost
+
+    def compute_dense_reward(self, *args, info: dict, **kwargs):
+        reward = 0.0
+
+        # -------------------------------------------------------------------------- #
+        # The end-effector should be close to the target pose
+        # -------------------------------------------------------------------------- #
+        # Position
+        #reward_ee_to_handle = -dist_ee_to_handle.mean() * 2
+        reward_ee_to_handle = -info["dist_ee_to_handle"] * 2
+        reward += reward_ee_to_handle
+
+        # Encourage grasping the handle
+        #dist_ee_center_to_handle = dist_ee_center_to_handle.max()
+        dist_ee_center_to_handle = info["dist_ee_center_to_handle"]
+        reward_ee_center_to_handle = (
+            clip_and_normalize(dist_ee_center_to_handle, -0.01, 4e-3) - 1
+        )
+        reward += reward_ee_center_to_handle
+
+        # Rotation
+        #ee_rot_reward = -min(angles_ee_to_grasp_poses) / np.pi * 3
+        ee_rot_reward = -info["angles_ee_to_grasp_poses"] / np.pi * 3
         reward += ee_rot_reward
 
         # -------------------------------------------------------------------------- #
@@ -370,10 +399,7 @@ class OpenCabinetEnv(MS1BaseEnv):
         link_vel_norm = info["link_vel_norm"]
         link_ang_vel_norm = info["link_ang_vel_norm"]
 
-        ee_close_to_handle = (
-            dist_ee_to_handle.max() <= 0.01 and dist_ee_center_to_handle > 0
-        )
-        if ee_close_to_handle:
+        if info["ee_close_to_handle"]:
             stage_reward += 0.5
 
             # Distance between current and target joint positions
@@ -399,7 +425,7 @@ class OpenCabinetEnv(MS1BaseEnv):
                     stage_reward += 1
 
         # Update info
-        info.update(ee_close_to_handle=ee_close_to_handle, stage_reward=stage_reward)
+        info.update(stage_reward=stage_reward)
 
         reward += stage_reward
         return reward
@@ -449,3 +475,82 @@ class OpenCabinetDrawerEnv(OpenCabinetEnv):
 
     def _set_cabinet_handles(self):
         super()._set_cabinet_handles("prismatic")
+
+
+@register_env("Cost/OpenCabinetDrawer-v1", max_episode_steps=200)
+class OpenCabinetDrawerCostEnv(OpenCabinetDrawerEnv):
+    def __init__(self, *args,
+                 dist_ee_to_handle_thres=0, dist_ee_center_to_handle_thres=0,
+                 angles_ee_to_grasp_poses_thres=0,
+                 no_check_close_to_handle=False,
+                 **kwargs):
+        self.dist_ee_to_handle_thres = dist_ee_to_handle_thres
+        self.dist_ee_center_to_handle_thres = dist_ee_center_to_handle_thres
+        self.angles_ee_to_grasp_poses_thres = angles_ee_to_grasp_poses_thres
+        self.no_check_close_to_handle = no_check_close_to_handle
+        super().__init__(*args, **kwargs)
+
+    def get_cost(self) -> dict:
+        ''' Calculate the current costs (after subtracting threshold) '''
+        cost = super().get_cost()
+
+        # dist_ee_to_handle <= thres
+        cost["cost_dist_ee_to_handle"] \
+                = cost["dist_ee_to_handle"] - self.dist_ee_to_handle_thres
+
+        # dist_ee_center_to_handle >= thres
+        cost["cost_dist_ee_center_to_handle"] \
+                = self.dist_ee_center_to_handle_thres - cost["dist_ee_center_to_handle"]
+
+        # angles_ee_to_grasp_poses <= thres
+        cost["cost_angles_ee_to_grasp_poses"] \
+                = cost["angles_ee_to_grasp_poses"] - self.angles_ee_to_grasp_poses_thres
+
+        return cost
+
+    def compute_dense_reward(self, *args, info: dict, **kwargs):
+        reward = 0.0
+
+        # -------------------------------------------------------------------------- #
+        # Stage reward
+        # -------------------------------------------------------------------------- #
+        coeff_qvel = 1.5  # joint velocity
+        coeff_qpos = 0.5  # joint position distance
+        stage_reward = -5 - (coeff_qvel + coeff_qpos)
+        # Legacy version also abstract coeff_qvel + coeff_qpos.
+
+        link_qpos = info["link_qpos"]
+        link_qvel = self.link_qvel
+        link_vel_norm = info["link_vel_norm"]
+        link_ang_vel_norm = info["link_ang_vel_norm"]
+
+        if info["ee_close_to_handle"] or self.no_check_close_to_handle:
+            stage_reward += 0.5
+
+            # Distance between current and target joint positions
+            # TODO(jigu): the lower bound 0 is problematic? should we use lower bound of joint limits?
+            reward_qpos = (
+                clip_and_normalize(link_qpos, 0, self.target_qpos) * coeff_qpos
+            )
+            reward += reward_qpos
+
+            if not info["open_enough"]:
+                # Encourage positive joint velocity to increase joint position
+                reward_qvel = clip_and_normalize(link_qvel, -0.1, 0.5) * coeff_qvel
+                reward += reward_qvel
+            else:
+                # Add coeff_qvel for smooth transition of stagess
+                stage_reward += 2 + coeff_qvel
+                reward_static = -(link_vel_norm + link_ang_vel_norm * 0.5)
+                reward += reward_static
+
+                # Legacy version uses static from info, which is incompatible with MPC.
+                # if info["cabinet_static"]:
+                if link_vel_norm <= 0.1 and link_ang_vel_norm <= 1:
+                    stage_reward += 1
+
+        # Update info
+        info.update(stage_reward=stage_reward)
+
+        reward += stage_reward
+        return reward

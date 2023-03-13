@@ -69,6 +69,7 @@ def rotate_2d_vec_by_angle(vec, theta):
 
 
 def angle_distance(q0: sapien.Pose, q1: sapien.Pose):
+    """Range is [0, 2]"""
     qd = (q0.inv() * q1).q
     return 2 * np.arctan2(np.linalg.norm(qd[1:]), qd[0]) / np.pi
 
