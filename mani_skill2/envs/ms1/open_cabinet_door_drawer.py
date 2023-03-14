@@ -342,7 +342,8 @@ class OpenCabinetEnv(MS1BaseEnv):
             ee_center_at_handle
         )
         # print("SDF", dist_ee_center_to_handle)
-        cost["dist_ee_center_to_handle"] = dist_ee_center_to_handle.max()
+        dist_ee_center_to_handle = dist_ee_center_to_handle.max()
+        cost["dist_ee_center_to_handle"] = dist_ee_center_to_handle
 
         # pointer = trimesh.creation.icosphere(radius=0.02, color=(1, 0, 0))
         # trimesh.Scene([self.target_handle_mesh, trimesh.PointCloud(ee_center_at_handle)]).show()
