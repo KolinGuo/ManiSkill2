@@ -1,7 +1,6 @@
 from collections import OrderedDict
 
 import numpy as np
-import sapien.core as sapien
 from sapien.core import Pose
 from transforms3d.euler import euler2quat
 
