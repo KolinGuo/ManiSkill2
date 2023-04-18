@@ -13,7 +13,7 @@ from mani_skill2.utils.common import random_choice
 from mani_skill2.utils.io_utils import load_json
 from mani_skill2.utils.registration import register_env
 from mani_skill2.utils.sapien_utils import vectorize_pose
-from mani_skill2.utils.geometry import get_axis_aligned_bbox_for_actor
+from mani_skill2.utils.geometry import get_axis_aligned_bbox_for_actor, angle_between_vec
 
 from .base_env import StationaryManipulationEnv
 from .pick_single import build_actor_ycb
@@ -297,14 +297,20 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                                                  max_v=0.1, max_ang_v=0.2)
         is_bowl_static = self.check_actor_static(self.bowl,
                                                  max_v=0.1, max_ang_v=0.2)
+        z_axis_world = np.array([0, 0, 1])
+        bowl_up_axis = self.bowl.get_pose().to_transformation_matrix()[:3, :3] \
+                     @ z_axis_world
+        is_bowl_upwards = abs(angle_between_vec(bowl_up_axis,
+                                                z_axis_world)) < 0.1*np.pi
         eval_dict = dict(
             is_cube_grasped=self.agent.check_grasp(self.cube),
             is_cube_inside=is_cube_inside,
             is_robot_static=is_robot_static,
             is_cube_static=is_cube_static,
             is_bowl_static=is_bowl_static,
+            is_bowl_upwards=is_bowl_upwards,
             success=(is_cube_inside and is_robot_static and
-                     is_cube_static and is_bowl_static),
+                     is_cube_static and is_bowl_static and is_bowl_upwards),
         )
         eval_dict.update(self.get_cost())
         return eval_dict
