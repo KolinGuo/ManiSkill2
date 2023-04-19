@@ -384,3 +384,58 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             self.cube.name: self.cube.get_pose(),
             self.bowl.name: self.bowl.get_pose(),
         }
+
+
+@register_env("PlaceCubeInBowlEasy-v0", max_episode_steps=20,
+              extra_state_obs=True)
+@register_env("PlaceCubeInBowlEasy-v1", max_episode_steps=20,
+              extra_state_obs=True, no_static_checks=True)
+class PlaceCubeInBowlEasyEnv(PlaceCubeInBowlEnv):
+    """Environment where robot gripper starts at grasping cube position"""
+    def __init__(self, *args, no_static_checks=False, **kwargs):
+        self.pmodel = None
+
+        self.no_static_checks = no_static_checks
+
+        super().__init__(*args, **kwargs)
+
+    def _initialize_agent(self):
+        super()._initialize_agent()
+
+        if self.pmodel is None:
+            self.pmodel = self.agent.robot.create_pinocchio_model()
+            self.ee_link_idx = self.agent.robot.get_links().index(self.tcp)
+
+        ### Set agent qpos to be at grasping cube position ###
+        # Build grasp pose
+        cube_pose = self.cube.pose.to_transformation_matrix()
+        cube_pos = cube_pose[:3, -1]
+        T_world_ee_poses = [
+            self.agent.build_grasp_pose([0, 0, -1], cube_pose[:3, 0], cube_pos),
+            self.agent.build_grasp_pose([0, 0, -1], -cube_pose[:3, 0], cube_pos),
+            self.agent.build_grasp_pose([0, 0, -1], cube_pose[:3, 1], cube_pos),
+            self.agent.build_grasp_pose([0, 0, -1], -cube_pose[:3, 1], cube_pos),
+        ]
+        T_world_robot = self.agent.robot.pose
+        T_robot_ee_poses = [T_world_robot.inv().transform(T_we) for T_we in T_world_ee_poses]
+
+        # Compute IK
+        for T_robot_ee in T_robot_ee_poses:
+            qpos, success, error = self.pmodel.compute_inverse_kinematics(
+                self.ee_link_idx, T_robot_ee,
+                initial_qpos=self.agent.robot.get_qpos(),
+                max_iterations=100
+            )
+            if success:
+                break
+        else:
+            raise RuntimeError("No successful grasp pose found!")
+        self.agent.robot.set_qpos(qpos)
+
+    def evaluate(self, **kwargs):
+        eval_dict = super().evaluate(**kwargs)
+
+        if self.no_static_checks:
+            eval_dict["success"] = (eval_dict["is_cube_inside"] and
+                                    eval_dict["is_bowl_upwards"])
+        return eval_dict
