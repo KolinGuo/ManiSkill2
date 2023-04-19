@@ -37,8 +37,8 @@ def get_axis_aligned_bbox_for_cube(cube_actor):
 
 @register_env("PlaceCubeInBowl-v0", max_episode_steps=200)
 @register_env("PlaceCubeInBowl-v1", max_episode_steps=50, extra_state_obs=True)
-@register_env("PlaceCubeInBowl-v2", max_episode_steps=50,
-              extra_state_obs=True, fix_init_bowl_pos=True)
+@register_env("PlaceCubeInBowl-v2", max_episode_steps=50, extra_state_obs=True,
+              fix_init_bowl_pos=True, dist_cube_bowl=0.15)
 class PlaceCubeInBowlEnv(StationaryManipulationEnv):
     DEFAULT_ASSET_ROOT = "{ASSET_DIR}/mani_skill2_ycb"
     DEFAULT_MODEL_JSON = "info_pick_v0.json"
@@ -51,6 +51,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                  obj_init_rot=0,
                  extra_state_obs=False,
                  fix_init_bowl_pos=False,
+                 dist_cube_bowl=0.2,
                  **kwargs):
         if asset_root is None:
             asset_root = self.DEFAULT_ASSET_ROOT
@@ -80,6 +81,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
         self.extra_state_obs = extra_state_obs
         self.fix_init_bowl_pos = fix_init_bowl_pos
+        self.dist_cube_bowl = dist_cube_bowl
 
         self._check_assets()
         super().__init__(*args, **kwargs)
@@ -171,7 +173,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
     def _initialize_bowl_actors(self):
         # The object will fall from a certain height
         if self.fix_init_bowl_pos:
-            xy = self._episode_rng.uniform([-0.2, -0.1], [0, 0.1], [2])
+            xy = self._episode_rng.uniform([-0.1, -0.05], [0, 0.05], [2])
         else:
             xy = self._episode_rng.uniform(-0.1, 0.1, [2])
         z = self._get_init_z()
@@ -213,15 +215,15 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         if lin_vel > 1e-3 or ang_vel > 1e-2:
             self._settle(0.5)
 
-    def _initialize_actors(self, cube_ori=None, dist_cube_bowl=0.2):
+    def _initialize_actors(self, cube_ori=None):
         """cubeA_ori is the angle from bowl to A"""
         self._initialize_bowl_actors()
 
         if cube_ori is None:
             # cube_ori = self._episode_rng.uniform(-np.pi/4, np.pi*3/4)
             cube_ori = self._episode_rng.uniform(0, 2 * np.pi)
-        cube_xy = self.bowl.pose.p[:2] + [np.cos(cube_ori) * dist_cube_bowl,
-                                          np.sin(cube_ori) * dist_cube_bowl]
+        cube_xy = self.bowl.pose.p[:2] + [np.cos(cube_ori) * self.dist_cube_bowl,
+                                          np.sin(cube_ori) * self.dist_cube_bowl]
 
         cube_q = [1, 0, 0, 0]
         if self.obj_init_rot_z:
@@ -393,10 +395,10 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         }
 
 
-@register_env("PlaceCubeInBowlEasy-v0", max_episode_steps=20,
-              extra_state_obs=True, fix_init_bowl_pos=True)
-@register_env("PlaceCubeInBowlEasy-v1", max_episode_steps=20,
-              extra_state_obs=True, fix_init_bowl_pos=True,
+@register_env("PlaceCubeInBowlEasy-v0", max_episode_steps=20, extra_state_obs=True,
+              fix_init_bowl_pos=True, dist_cube_bowl=0.15)
+@register_env("PlaceCubeInBowlEasy-v1", max_episode_steps=20, extra_state_obs=True,
+              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
               no_static_checks=True)
 class PlaceCubeInBowlEasyEnv(PlaceCubeInBowlEnv):
     """Environment where robot gripper starts at grasping cube position"""
@@ -418,11 +420,21 @@ class PlaceCubeInBowlEasyEnv(PlaceCubeInBowlEnv):
         # Build grasp pose
         cube_pose = self.cube.pose.to_transformation_matrix()
         cube_pos = cube_pose[:3, -1]
+        # Get the cube axis that has larger angle with cube_to_bowl
+        cube_x_axis, cube_y_axis = cube_pose[:3, 0], cube_pose[:3, 1]
+        cube_to_bowl = self.bowl.pose.p - cube_pos
+        ang_cube_x = angle_between_vec(cube_to_bowl, cube_x_axis)
+        ang_cube_x = min(ang_cube_x, np.pi - ang_cube_x)
+        ang_cube_y = angle_between_vec(cube_to_bowl, cube_y_axis)
+        ang_cube_y = min(ang_cube_y, np.pi - ang_cube_y)
+        if ang_cube_x > ang_cube_y:
+            closing = cube_x_axis
+        else:
+            closing = cube_y_axis
+
         T_world_ee_poses = [
-            self.agent.build_grasp_pose([0, 0, -1], cube_pose[:3, 0], cube_pos),
-            self.agent.build_grasp_pose([0, 0, -1], -cube_pose[:3, 0], cube_pos),
-            self.agent.build_grasp_pose([0, 0, -1], cube_pose[:3, 1], cube_pos),
-            self.agent.build_grasp_pose([0, 0, -1], -cube_pose[:3, 1], cube_pos),
+            self.agent.build_grasp_pose([0, 0, -1], closing, cube_pos),
+            self.agent.build_grasp_pose([0, 0, -1], -closing, cube_pos),
         ]
         T_world_robot = self.agent.robot.pose
         T_robot_ee_poses = [T_world_robot.inv().transform(T_we) for T_we in T_world_ee_poses]
