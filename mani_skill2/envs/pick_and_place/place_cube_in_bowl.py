@@ -230,6 +230,9 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self.goal_pos = bowl_pos + [0, 0, 0.05]
 
     def _get_obs_extra(self) -> OrderedDict:
+        # Update goal_pos in case the bowl moves
+        self.goal_pos = self.bowl.pose.p + [0, 0, 0.05]
+
         obs = OrderedDict(
             tcp_pose=vectorize_pose(self.tcp.pose),
             goal_pos=self.goal_pos,
