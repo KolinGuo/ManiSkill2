@@ -36,7 +36,7 @@ def get_axis_aligned_bbox_for_cube(cube_actor):
 
 
 @register_env("PlaceCubeInBowl-v0", max_episode_steps=200)
-@register_env("PlaceCubeInBowl-v1", max_episode_steps=200, extra_state_obs=True)
+@register_env("PlaceCubeInBowl-v1", max_episode_steps=50, extra_state_obs=True)
 class PlaceCubeInBowlEnv(StationaryManipulationEnv):
     DEFAULT_ASSET_ROOT = "{ASSET_DIR}/mani_skill2_ycb"
     DEFAULT_MODEL_JSON = "info_pick_v0.json"
