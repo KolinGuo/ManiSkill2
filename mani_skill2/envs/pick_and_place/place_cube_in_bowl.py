@@ -36,6 +36,7 @@ def get_axis_aligned_bbox_for_cube(cube_actor):
 
 
 @register_env("PlaceCubeInBowl-v0", max_episode_steps=200)
+@register_env("PlaceCubeInBowl-v1", max_episode_steps=200, extra_state_obs=True)
 class PlaceCubeInBowlEnv(StationaryManipulationEnv):
     DEFAULT_ASSET_ROOT = "{ASSET_DIR}/mani_skill2_ycb"
     DEFAULT_MODEL_JSON = "info_pick_v0.json"
@@ -46,6 +47,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                  model_ids: List[str] = ('024_bowl'),
                  obj_init_rot_z=True,
                  obj_init_rot=0,
+                 extra_state_obs=False,
                  **kwargs):
         if asset_root is None:
             asset_root = self.DEFAULT_ASSET_ROOT
@@ -72,6 +74,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self.obj_init_rot_z = obj_init_rot_z
         self.obj_init_rot = obj_init_rot
         self.cube_half_size = np.array([0.02] * 3, np.float32)
+
+        self.extra_state_obs = extra_state_obs
 
         self._check_assets()
         super().__init__(*args, **kwargs)
@@ -237,6 +241,18 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                 tcp_to_cube_pos=self.cube.pose.p - self.tcp.pose.p,
                 cube_to_goal_pos=self.goal_pos - self.cube.pose.p,
             )
+            if self.extra_state_obs:
+                obs.update(
+                    bowl_pose=vectorize_pose(self.bowl.pose),
+                    tcp_to_bowl_pos=self.bowl.pose.p - self.tcp.pose.p,
+                    cube_to_bowl_pos=self.bowl.pose.p - self.cube.pose.p,
+                    cube_bbox=np.hstack(
+                        get_axis_aligned_bbox_for_cube(self.cube)
+                    ),
+                    bowl_bbox=np.hstack(
+                        get_axis_aligned_bbox_for_actor(self.bowl)
+                    ),
+                )
         return obs
 
     def check_cube_inside(self):
