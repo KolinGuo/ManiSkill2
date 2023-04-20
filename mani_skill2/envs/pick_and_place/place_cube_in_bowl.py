@@ -83,6 +83,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self.fix_init_bowl_pos = fix_init_bowl_pos
         self.dist_cube_bowl = dist_cube_bowl
 
+        self.pmodel = None
+
         self._check_assets()
         super().__init__(*args, **kwargs)
 
@@ -232,6 +234,52 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         cube_pose = Pose([cube_xy[0], cube_xy[1], z], cube_q)
 
         self.cube.set_pose(cube_pose)
+
+    def _initialize_agent(self):
+        super()._initialize_agent()
+
+        if self.pmodel is None:
+            self.pmodel = self.agent.robot.create_pinocchio_model()
+            self.ee_link_idx = self.agent.robot.get_links().index(self.tcp)
+
+        ### Set agent qpos to be at grasping cube position ###
+        # Build grasp pose
+        cube_pose = self.cube.pose.to_transformation_matrix()
+        cube_pos = cube_pose[:3, -1]
+        # Get the cube axis that has larger angle with cube_to_bowl
+        cube_x_axis, cube_y_axis = cube_pose[:3, 0], cube_pose[:3, 1]
+        cube_to_bowl = self.bowl.pose.p - cube_pos
+        ang_cube_x = angle_between_vec(cube_to_bowl, cube_x_axis)
+        ang_cube_x = min(ang_cube_x, np.pi - ang_cube_x)
+        ang_cube_y = angle_between_vec(cube_to_bowl, cube_y_axis)
+        ang_cube_y = min(ang_cube_y, np.pi - ang_cube_y)
+        if ang_cube_x > ang_cube_y:
+            closing = cube_x_axis
+        else:
+            closing = cube_y_axis
+
+        T_world_ee_poses = [
+            self.agent.build_grasp_pose([0, 0, -1], closing, cube_pos),
+            self.agent.build_grasp_pose([0, 0, -1], -closing, cube_pos),
+        ]
+        T_world_robot = self.agent.robot.pose
+        T_robot_ee_poses = [T_world_robot.inv().transform(T_we) for T_we in T_world_ee_poses]
+
+        # Compute IK
+        for T_robot_ee in T_robot_ee_poses:
+            qpos, success, error = self.pmodel.compute_inverse_kinematics(
+                self.ee_link_idx, T_robot_ee,
+                initial_qpos=self.agent.robot.get_qpos(),
+                max_iterations=100
+            )
+            if success:
+                self.robot_grasp_cube_qpos = qpos
+                break
+        else:
+            print("[ENV] No successful grasp pose found!")
+            # Attempt to reset bowl/cube position
+            self._initialize_actors()
+            self._initialize_agent()
 
     def _initialize_task(self, max_trials=100, verbose=False):
         bowl_pos = self.bowl.pose.p
@@ -403,54 +451,13 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 class PlaceCubeInBowlEasyEnv(PlaceCubeInBowlEnv):
     """Environment where robot gripper starts at grasping cube position"""
     def __init__(self, *args, no_static_checks=False, **kwargs):
-        self.pmodel = None
-
         self.no_static_checks = no_static_checks
 
         super().__init__(*args, **kwargs)
 
     def _initialize_agent(self):
         super()._initialize_agent()
-
-        if self.pmodel is None:
-            self.pmodel = self.agent.robot.create_pinocchio_model()
-            self.ee_link_idx = self.agent.robot.get_links().index(self.tcp)
-
-        ### Set agent qpos to be at grasping cube position ###
-        # Build grasp pose
-        cube_pose = self.cube.pose.to_transformation_matrix()
-        cube_pos = cube_pose[:3, -1]
-        # Get the cube axis that has larger angle with cube_to_bowl
-        cube_x_axis, cube_y_axis = cube_pose[:3, 0], cube_pose[:3, 1]
-        cube_to_bowl = self.bowl.pose.p - cube_pos
-        ang_cube_x = angle_between_vec(cube_to_bowl, cube_x_axis)
-        ang_cube_x = min(ang_cube_x, np.pi - ang_cube_x)
-        ang_cube_y = angle_between_vec(cube_to_bowl, cube_y_axis)
-        ang_cube_y = min(ang_cube_y, np.pi - ang_cube_y)
-        if ang_cube_x > ang_cube_y:
-            closing = cube_x_axis
-        else:
-            closing = cube_y_axis
-
-        T_world_ee_poses = [
-            self.agent.build_grasp_pose([0, 0, -1], closing, cube_pos),
-            self.agent.build_grasp_pose([0, 0, -1], -closing, cube_pos),
-        ]
-        T_world_robot = self.agent.robot.pose
-        T_robot_ee_poses = [T_world_robot.inv().transform(T_we) for T_we in T_world_ee_poses]
-
-        # Compute IK
-        for T_robot_ee in T_robot_ee_poses:
-            qpos, success, error = self.pmodel.compute_inverse_kinematics(
-                self.ee_link_idx, T_robot_ee,
-                initial_qpos=self.agent.robot.get_qpos(),
-                max_iterations=100
-            )
-            if success:
-                break
-        else:
-            raise RuntimeError("No successful grasp pose found!")
-        self.agent.robot.set_qpos(qpos)
+        self.agent.robot.set_qpos(self.robot_grasp_cube_qpos)
 
     def evaluate(self, **kwargs):
         eval_dict = super().evaluate(**kwargs)
