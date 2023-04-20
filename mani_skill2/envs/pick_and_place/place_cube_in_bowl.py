@@ -1,3 +1,4 @@
+import re
 from collections import OrderedDict
 from pathlib import Path
 from typing import Dict, List
@@ -43,6 +44,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
     DEFAULT_ASSET_ROOT = "{ASSET_DIR}/mani_skill2_ycb"
     DEFAULT_MODEL_JSON = "info_pick_v0.json"
 
+    SUPPORTED_REWARD_MODES = ("dense", "sparse", "sparse_grounded_sam")
+
     def __init__(self, *args,
                  asset_root: str = None,
                  model_json: str = None,
@@ -84,6 +87,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self.dist_cube_bowl = dist_cube_bowl
 
         self.pmodel = None
+
+        self.grounded_sam = None
 
         self._check_assets()
         super().__init__(*args, **kwargs)
@@ -286,6 +291,9 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
         self.goal_pos = bowl_pos + [0, 0, 0.05]
 
+        if self._reward_mode == "sparse_grounded_sam":
+            self._initialize_grounded_sam()
+
     def _get_obs_extra(self) -> OrderedDict:
         # Update goal_pos in case the bowl moves
         self.goal_pos = self.bowl.pose.p + [0, 0, 0.05]
@@ -441,6 +449,140 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             self.cube.name: self.cube.get_pose(),
             self.bowl.name: self.bowl.get_pose(),
         }
+
+    # Grounded-SAM related
+    def get_reward(self, **kwargs):
+        if self._reward_mode == "sparse_grounded_sam":
+            return self.compute_sparse_grounded_sam_reward(**kwargs)
+        else:
+            return super().get_reward(**kwargs)
+
+    def render_rgb_pcd_images(self):
+        self.update_render()
+
+        rgb_images = []
+        xyz_images = []  # xyz_images in world coordinates
+        xyz_masks = []   # xyz_mask for valid points
+        for camera in self._render_cameras.values():
+            camera_captures = camera.get_images(take_picture=True)
+
+            rgba = camera_captures["Color"]
+            rgb_images.append(np.clip(rgba[:, :, :3] * 255, 0, 255).astype(np.uint8))
+
+            pos_depth = camera_captures["Position"]
+            xyz_image = pos_depth[:, :, :3]
+            xyz_masks.append(pos_depth[..., 3] < 1)
+
+            image_shape = xyz_image.shape[:2]
+            T = camera.camera.get_model_matrix()
+            xyz_image = xyz_image.reshape(-1, 3) @ T[:3, :3].T + T[:3, 3]
+            xyz_images.append(xyz_image.reshape(*image_shape, 3))
+
+        return rgb_images, xyz_images, xyz_masks
+
+    def _initialize_grounded_sam(self):
+        if self.grounded_sam is None:
+            from grounded_sam import GroundedSAM
+            self.grounded_sam = GroundedSAM(
+                grounding_dino_model_variant='swin-b',
+                sam_model_variant='vit_h',
+                device="cuda:1"
+            )
+
+            import os
+            self.grounded_sam_output_dir = Path(os.environ["log_dir"]) \
+                / 'grounded_sam'
+
+    def compute_sparse_grounded_sam_reward(self, info, **kwargs) -> float:
+        # Render RGB images and pointclouds
+        rgb_images, xyz_images, xyz_masks = self.render_rgb_pcd_images()
+
+        self.objects_text = ["green cube", "red bowl"]
+        self.prompt_with_robot_arm = True
+
+        def find_most_confident_label(pred_phrases, label):
+            pred_label_idx = None
+            best_logit = 0.0
+            for i, pred_phrase in enumerate(pred_phrases):
+                pred_label, pred_logit = re.split('\(|\)', pred_phrase)[:2]
+                if label.lower() in pred_label and float(pred_logit) > best_logit:
+                    pred_label_idx = i
+                    best_logit = float(pred_logit)
+            return pred_label_idx
+
+        def save_pred_result(correct_pred: bool, rgb_images, text_prompt,
+                             boxes_filt_batch, pred_phrases_batch,
+                             batched_output):
+            for img_i, rgb_image in enumerate(rgb_images):
+                boxes_filt = boxes_filt_batch[img_i]
+                pred_phrases = pred_phrases_batch[img_i]
+                pred_masks = batched_output[img_i]['masks'].cpu().numpy()
+                # Save pred_mask results
+                import uuid
+                self.grounded_sam.save_pred_result(
+                    self.grounded_sam_output_dir / f'{correct_pred}_{self._elapsed_steps}_'+str(uuid.uuid4()),
+                    rgb_image, text_prompt,
+                    boxes_filt, pred_phrases, pred_masks
+                )
+
+        text_prompt = '. '.join(self.objects_text) + '.'
+        if self.prompt_with_robot_arm:
+            text_prompt += ' robot arm.'
+
+        boxes_filt_batch, pred_phrases_batch, batched_output = self.grounded_sam.predict(
+            np.stack(rgb_images), [text_prompt]*len(rgb_images)
+        )
+
+        object_pcds = {}  # {object_text: object_pcd}
+        for img_i, rgb_image in enumerate(rgb_images):
+            xyz_image = xyz_images[img_i]
+            xyz_mask = xyz_masks[img_i]
+            boxes_filt = boxes_filt_batch[img_i]
+            pred_phrases = pred_phrases_batch[img_i]
+            pred_masks = batched_output[img_i]['masks'].cpu().numpy()
+
+            for object_text in self.objects_text:
+                pred_label_idx = find_most_confident_label(pred_phrases, object_text)
+                if pred_label_idx is None:  # object cannot be found
+                    save_pred_result(
+                        info["success"] == False, rgb_images,
+                        text_prompt + f'(env {info["success"]}, pred {False})',
+                        boxes_filt_batch, pred_phrases_batch,
+                        batched_output
+                    )
+                    return 0.0
+                pred_mask = pred_masks[pred_label_idx, 0]  # [H, W]
+
+                object_pcds[object_text] = xyz_image[xyz_mask & pred_mask]
+
+        # Extract bbox from object_pcds
+        bowl_mins = object_pcds["red bowl"].min(0)
+        bowl_maxs = object_pcds["red bowl"].max(0)
+        cube_mins = object_pcds["green cube"].min(0)
+        cube_maxs = object_pcds["green cube"].max(0)
+
+        # For xy axes, cube need to be inside bowl
+        # For z axis, cube_z_max can be greater than bowl_z_max
+        #   by its half_length
+        if bowl_mins[0] <= cube_mins[0] and cube_maxs[0] <= bowl_maxs[0] and \
+           bowl_mins[1] <= cube_mins[1] and cube_maxs[1] <= bowl_maxs[1] and \
+           bowl_mins[2] <= cube_mins[2] and \
+           cube_maxs[2] <= bowl_maxs[2] + self.cube_half_size.max():
+            save_pred_result(
+                info["success"] == True, rgb_images,
+                text_prompt + f'(env {info["success"]}, pred {True})',
+                boxes_filt_batch, pred_phrases_batch,
+                batched_output
+            )
+            return 1.0
+
+        save_pred_result(
+            info["success"] == False, rgb_images,
+            text_prompt + f'(env {info["success"]}, pred {False})',
+            boxes_filt_batch, pred_phrases_batch,
+            batched_output
+        )
+        return 0.0
 
 
 @register_env("PlaceCubeInBowlEasy-v0", max_episode_steps=20, extra_state_obs=True,
