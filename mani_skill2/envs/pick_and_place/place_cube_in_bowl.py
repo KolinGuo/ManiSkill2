@@ -525,7 +525,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                 # Save pred_mask results
                 import uuid
                 self.grounded_sam.save_pred_result(
-                    self.grounded_sam_output_dir / f'{correct_pred}_{self._elapsed_steps}_'+str(uuid.uuid4()),
+                    self.grounded_sam_output_dir / (f'{correct_pred}_{self._elapsed_steps}_'+str(uuid.uuid4())),
                     rgb_image, text_prompt,
                     boxes_filt, pred_phrases, pred_masks
                 )
