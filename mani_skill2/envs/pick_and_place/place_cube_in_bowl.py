@@ -89,6 +89,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self.pmodel = None
 
         self.grounded_sam = None
+        self.max_episode_steps = 50
 
         self._check_assets()
         super().__init__(*args, **kwargs)
@@ -453,7 +454,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
     # Grounded-SAM related
     def get_reward(self, **kwargs):
         if self._reward_mode == "sparse_last_grounded_sam":
-            if self._elapsed_steps >= self._max_episode_steps:  # Last step
+            if self._elapsed_steps >= self.max_episode_steps:  # Last step
                 return self.compute_sparse_grounded_sam_reward(**kwargs)
             else:
                 return 0.0
@@ -597,6 +598,8 @@ class PlaceCubeInBowlEasyEnv(PlaceCubeInBowlEnv):
     """Environment where robot gripper starts at grasping cube position"""
     def __init__(self, *args, no_static_checks=False, **kwargs):
         self.no_static_checks = no_static_checks
+
+        self.max_episode_steps = 20
 
         super().__init__(*args, **kwargs)
 
