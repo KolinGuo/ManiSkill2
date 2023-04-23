@@ -516,12 +516,13 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             return pred_label_idx
 
         def save_pred_result(correct_pred: bool, rgb_images, text_prompt,
-                             boxes_filt_batch, pred_phrases_batch,
-                             batched_output):
+                             boxes_filt_batch: List[np.ndarray],
+                             pred_phrases_batch: List[List[str]],
+                             batched_output: List[dict[str, np.ndarray]]):
             for img_i, rgb_image in enumerate(rgb_images):
                 boxes_filt = boxes_filt_batch[img_i]
                 pred_phrases = pred_phrases_batch[img_i]
-                pred_masks = batched_output[img_i]['masks'].cpu().numpy()
+                pred_masks = batched_output[img_i]['masks']
                 # Save pred_mask results
                 import uuid
                 self.grounded_sam.save_pred_result(
@@ -538,13 +539,18 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             np.stack(rgb_images), [text_prompt]*len(rgb_images)
         )
 
+        # Convert torch.Tensor to np.ndarray
+        boxes_filt_batch = [b.numpy() for b in boxes_filt_batch]
+        batched_output = [{k: v.cpu().numpy() for k, v in o_dict.items()}
+                          for o_dict in batched_output]
+
         object_pcds = {}  # {object_text: object_pcd}
         for img_i, rgb_image in enumerate(rgb_images):
             xyz_image = xyz_images[img_i]
             xyz_mask = xyz_masks[img_i]
             boxes_filt = boxes_filt_batch[img_i]
             pred_phrases = pred_phrases_batch[img_i]
-            pred_masks = batched_output[img_i]['masks'].cpu().numpy()
+            pred_masks = batched_output[img_i]['masks']
 
             for object_text in self.objects_text:
                 pred_label_idx = find_most_confident_label(pred_phrases, object_text)
