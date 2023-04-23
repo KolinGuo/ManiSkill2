@@ -44,7 +44,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
     DEFAULT_ASSET_ROOT = "{ASSET_DIR}/mani_skill2_ycb"
     DEFAULT_MODEL_JSON = "info_pick_v0.json"
 
-    SUPPORTED_REWARD_MODES = ("dense", "sparse", "sparse_grounded_sam")
+    SUPPORTED_REWARD_MODES = ("dense", "sparse", "sparse_last_grounded_sam")
 
     def __init__(self, *args,
                  asset_root: str = None,
@@ -452,8 +452,11 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
     # Grounded-SAM related
     def get_reward(self, **kwargs):
-        if self._reward_mode == "sparse_grounded_sam":
-            return self.compute_sparse_grounded_sam_reward(**kwargs)
+        if self._reward_mode == "sparse_last_grounded_sam":
+            if self._elapsed_steps >= self._max_episode_steps:  # Last step
+                return self.compute_sparse_grounded_sam_reward(**kwargs)
+            else:
+                return 0.0
         else:
             return super().get_reward(**kwargs)
 
