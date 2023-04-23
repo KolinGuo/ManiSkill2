@@ -89,10 +89,11 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self.pmodel = None
 
         self.grounded_sam = None
-        self.max_episode_steps = 50
 
         self._check_assets()
         super().__init__(*args, **kwargs)
+
+        self.max_episode_steps = 50
 
     def _check_assets(self):
         models_dir = self.asset_root / "models"
@@ -292,7 +293,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
         self.goal_pos = bowl_pos + [0, 0, 0.05]
 
-        if self._reward_mode == "sparse_grounded_sam":
+        if self._reward_mode == "sparse_last_grounded_sam":
             self._initialize_grounded_sam()
 
     def _get_obs_extra(self) -> OrderedDict:
@@ -599,9 +600,9 @@ class PlaceCubeInBowlEasyEnv(PlaceCubeInBowlEnv):
     def __init__(self, *args, no_static_checks=False, **kwargs):
         self.no_static_checks = no_static_checks
 
-        self.max_episode_steps = 20
-
         super().__init__(*args, **kwargs)
+
+        self.max_episode_steps = 20
 
     def _initialize_agent(self):
         super()._initialize_agent()
