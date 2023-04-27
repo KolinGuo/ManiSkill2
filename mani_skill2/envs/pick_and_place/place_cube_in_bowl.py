@@ -13,7 +13,12 @@ from mani_skill2 import format_path
 from mani_skill2.utils.common import random_choice
 from mani_skill2.utils.io_utils import load_json
 from mani_skill2.utils.registration import register_env
-from mani_skill2.utils.sapien_utils import vectorize_pose
+from mani_skill2.utils.sapien_utils import vectorize_pose, look_at
+from mani_skill2.sensors.camera import (
+    Camera,
+    CameraConfig,
+    parse_camera_cfgs,
+)
 from mani_skill2.utils.geometry import get_axis_aligned_bbox_for_actor, angle_between_vec
 
 from .base_env import StationaryManipulationEnv
@@ -462,13 +467,50 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         else:
             return super().get_reward(**kwargs)
 
+    # Add multi-view cameras
+    def _setup_cameras(self):
+        super()._setup_cameras()
+
+        poses = []
+        poses.append(look_at([0.4, 0.4, 0.8], [0.0, 0.0, 0.4]))
+        poses.append(look_at([0.4, -0.4, 0.8], [0.0, 0.0, 0.4]))
+
+        camera_configs = []
+        for i, pose in enumerate(poses):
+            camera_cfg = CameraConfig(f"multiview_render_camera_{i}",
+                                      pose.p, pose.q, 512, 512, 1, 0.01, 10)
+            camera_cfg.texture_names += ("Segmentation",)
+            camera_configs.append(camera_cfg)
+
+        self._multiview_render_camera_cfgs = parse_camera_cfgs(camera_configs)
+
+        self._multiview_render_cameras = OrderedDict()
+        if self._renderer_type != "client":
+            for uid, camera_cfg in self._multiview_render_camera_cfgs.items():
+                self._multiview_render_cameras[uid] = Camera(
+                    camera_cfg, self._scene, self._renderer_type
+                )
+
+    def _clear(self):
+        super()._clear()
+        self._multiview_render_cameras = OrderedDict()
+
+
     def render_rgb_pcd_images(self):
+        """
+        :return rgb_images: a list of [512, 512, 3] np.uint8 np.ndarray
+        :return xyz_images: a list of [512, 512, 3] np.float32 np.ndarray
+                            per-pixel xyz coordinates in world frame
+        :return xyz_masks: a list of [512, 512] np.bool np.ndarray
+                           per-pixel valid mask
+                           (in front of the far plane of camera frustum)
+        """
         self.update_render()
 
         rgb_images = []
         xyz_images = []  # xyz_images in world coordinates
         xyz_masks = []   # xyz_mask for valid points
-        for camera in self._render_cameras.values():
+        for camera in self._multiview_render_cameras.values():
             camera_captures = camera.get_images(take_picture=True)
 
             rgba = camera_captures["Color"]
@@ -518,11 +560,11 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         def save_pred_result(correct_pred: bool, rgb_images, text_prompt,
                              boxes_filt_batch: List[np.ndarray],
                              pred_phrases_batch: List[List[str]],
-                             batched_output: List[dict[str, np.ndarray]]):
+                             pred_masks_batch: List[np.ndarray]):
             for img_i, rgb_image in enumerate(rgb_images):
                 boxes_filt = boxes_filt_batch[img_i]
                 pred_phrases = pred_phrases_batch[img_i]
-                pred_masks = batched_output[img_i]['masks']
+                pred_masks = pred_masks_batch[img_i]
                 # Save pred_mask results
                 import uuid
                 self.grounded_sam.save_pred_result(
@@ -535,14 +577,13 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         if self.prompt_with_robot_arm:
             text_prompt += ' robot arm.'
 
-        boxes_filt_batch, pred_phrases_batch, batched_output = self.grounded_sam.predict(
+        boxes_filt_batch, pred_phrases_batch, pred_masks_batch, _ = self.grounded_sam.predict(
             np.stack(rgb_images), [text_prompt]*len(rgb_images)
         )
 
         # Convert torch.Tensor to np.ndarray
         boxes_filt_batch = [b.numpy() for b in boxes_filt_batch]
-        batched_output = [{k: v.cpu().numpy() for k, v in o_dict.items()}
-                          for o_dict in batched_output]
+        pred_masks_batch = [m.cpu().numpy() for m in pred_masks_batch]
 
         object_pcds = {}  # {object_text: object_pcd}
         for img_i, rgb_image in enumerate(rgb_images):
@@ -550,7 +591,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             xyz_mask = xyz_masks[img_i]
             boxes_filt = boxes_filt_batch[img_i]
             pred_phrases = pred_phrases_batch[img_i]
-            pred_masks = batched_output[img_i]['masks']
+            pred_masks = pred_masks_batch[img_i]
 
             for object_text in self.objects_text:
                 pred_label_idx = find_most_confident_label(pred_phrases, object_text)
@@ -558,8 +599,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                     save_pred_result(
                         info["success"] == False, rgb_images,
                         text_prompt + f'(env {info["success"]}, pred {False})',
-                        boxes_filt_batch, pred_phrases_batch,
-                        batched_output
+                        boxes_filt_batch, pred_phrases_batch, pred_masks_batch
                     )
                     return 0.0
                 pred_mask = pred_masks[pred_label_idx, 0]  # [H, W]
@@ -582,16 +622,14 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             save_pred_result(
                 info["success"] == True, rgb_images,
                 text_prompt + f'(env {info["success"]}, pred {True})',
-                boxes_filt_batch, pred_phrases_batch,
-                batched_output
+                boxes_filt_batch, pred_phrases_batch, pred_masks_batch
             )
             return 1.0
 
         save_pred_result(
             info["success"] == False, rgb_images,
             text_prompt + f'(env {info["success"]}, pred {False})',
-            boxes_filt_batch, pred_phrases_batch,
-            batched_output
+            boxes_filt_batch, pred_phrases_batch, pred_masks_batch
         )
         return 0.0
 
