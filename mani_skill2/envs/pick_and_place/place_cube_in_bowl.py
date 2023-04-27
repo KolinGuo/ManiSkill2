@@ -19,7 +19,10 @@ from mani_skill2.sensors.camera import (
     CameraConfig,
     parse_camera_cfgs,
 )
-from mani_skill2.utils.geometry import get_axis_aligned_bbox_for_actor, angle_between_vec
+from mani_skill2.utils.geometry import (
+    get_axis_aligned_bbox_for_actor,
+    angle_between_vec
+)
 
 from .base_env import StationaryManipulationEnv
 from .pick_single import build_actor_ycb
@@ -45,11 +48,21 @@ def get_axis_aligned_bbox_for_cube(cube_actor):
 @register_env("PlaceCubeInBowl-v1", max_episode_steps=50, extra_state_obs=True)
 @register_env("PlaceCubeInBowl-v2", max_episode_steps=50, extra_state_obs=True,
               fix_init_bowl_pos=True, dist_cube_bowl=0.15)
+@register_env("PlaceCubeInBowlStaged-v2",
+              max_episode_steps=50, extra_state_obs=True,
+              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+              reward_mode="sparse_staged", stage_obs=True)
+@register_env("PlaceCubeInBowlStagedNoStatic-v2",
+              max_episode_steps=50, extra_state_obs=True,
+              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+              reward_mode="sparse_staged", stage_obs=True,
+              no_static_checks=True)
 class PlaceCubeInBowlEnv(StationaryManipulationEnv):
     DEFAULT_ASSET_ROOT = "{ASSET_DIR}/mani_skill2_ycb"
     DEFAULT_MODEL_JSON = "info_pick_v0.json"
 
-    SUPPORTED_REWARD_MODES = ("dense", "sparse", "sparse_last_grounded_sam")
+    SUPPORTED_REWARD_MODES = ("dense", "sparse", "sparse_staged",
+                              "sparse_last_grounded_sam")
 
     def __init__(self, *args,
                  asset_root: str = None,
@@ -60,6 +73,9 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                  extra_state_obs=False,
                  fix_init_bowl_pos=False,
                  dist_cube_bowl=0.2,
+                 stage_obs=False,
+                 tcp_to_cube_dist_thres=0.015,
+                 no_static_checks=False,
                  **kwargs):
         if asset_root is None:
             asset_root = self.DEFAULT_ASSET_ROOT
@@ -87,9 +103,15 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self.obj_init_rot = obj_init_rot
         self.cube_half_size = np.array([0.02] * 3, np.float32)
 
+        self.stage_obs = stage_obs
+        self.num_stages = 3
+        self.current_stage = np.zeros(self.num_stages).astype(bool)
+        self.tcp_to_cube_dist_thres = tcp_to_cube_dist_thres
         self.extra_state_obs = extra_state_obs
         self.fix_init_bowl_pos = fix_init_bowl_pos
         self.dist_cube_bowl = dist_cube_bowl
+
+        self.no_static_checks = no_static_checks
 
         self.pmodel = None
 
@@ -131,6 +153,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
     def reset(self, seed=None, reconfigure=False,
               model_id=None, model_scale=None):
+        # reset stage obs
+        self.current_stage = np.zeros(self.num_stages).astype(bool)
         self._prev_actor_poses = {}
         self.set_episode_rng(seed)
         _reconfigure = self._set_model(model_id, model_scale)
@@ -236,8 +260,9 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         if cube_ori is None:
             # cube_ori = self._episode_rng.uniform(-np.pi/4, np.pi*3/4)
             cube_ori = self._episode_rng.uniform(0, 2 * np.pi)
-        cube_xy = self.bowl.pose.p[:2] + [np.cos(cube_ori) * self.dist_cube_bowl,
-                                          np.sin(cube_ori) * self.dist_cube_bowl]
+        cube_xy = self.bowl.pose.p[:2] + \
+            [np.cos(cube_ori) * self.dist_cube_bowl,
+             np.sin(cube_ori) * self.dist_cube_bowl]
 
         cube_q = [1, 0, 0, 0]
         if self.obj_init_rot_z:
@@ -254,7 +279,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             self.pmodel = self.agent.robot.create_pinocchio_model()
             self.ee_link_idx = self.agent.robot.get_links().index(self.tcp)
 
-        ### Set agent qpos to be at grasping cube position ###
+        # Set agent qpos to be at grasping cube position #
         # Build grasp pose
         cube_pose = self.cube.pose.to_transformation_matrix()
         cube_pos = cube_pose[:3, -1]
@@ -275,7 +300,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             self.agent.build_grasp_pose([0, 0, -1], -closing, cube_pos),
         ]
         T_world_robot = self.agent.robot.pose
-        T_robot_ee_poses = [T_world_robot.inv().transform(T_we) for T_we in T_world_ee_poses]
+        T_robot_ee_poses = [T_world_robot.inv().transform(T_we)
+                            for T_we in T_world_ee_poses]
 
         # Compute IK
         for T_robot_ee in T_robot_ee_poses:
@@ -327,6 +353,10 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                     bowl_bbox=np.hstack(
                         get_axis_aligned_bbox_for_actor(self.bowl)
                     ),
+                )
+            if self.stage_obs:
+                obs.update(
+                    stage=self.current_stage.astype(float)
                 )
         return obs
 
@@ -389,7 +419,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         is_bowl_static = self.check_actor_static(self.bowl,
                                                  max_v=0.1, max_ang_v=0.2)
         z_axis_world = np.array([0, 0, 1])
-        bowl_up_axis = self.bowl.get_pose().to_transformation_matrix()[:3, :3] \
+        bowl_up_axis = self.bowl.get_pose().to_transformation_matrix()[:3, :3]\
                      @ z_axis_world
         is_bowl_upwards = abs(angle_between_vec(bowl_up_axis,
                                                 z_axis_world)) < 0.1*np.pi
@@ -404,6 +434,24 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                      is_cube_static and is_bowl_static and is_bowl_upwards),
         )
         eval_dict.update(self.get_cost())
+
+        if self.no_static_checks:
+            eval_dict["success"] = is_cube_inside and is_bowl_upwards
+
+        if self._reward_mode == "sparse_staged":
+            tcp_to_cube_dist = eval_dict["tcp_to_cube_dist"]
+            if tcp_to_cube_dist < self.tcp_to_cube_dist_thres:
+                self.current_stage[0] = True
+            if self.current_stage[0] and is_cube_inside:
+                self.current_stage[1] = True
+            if eval_dict["success"]:
+                self.current_stage[-1] = True
+
+            eval_dict.update(dict(
+                in_stage1=self.current_stage[0],
+                in_stage2=self.current_stage[1],
+            ))
+
         return eval_dict
 
     def get_cost(self) -> dict:
@@ -445,13 +493,29 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
         return reward
 
+    def compute_staged_reward(self, info, **kwargs) -> float:
+        reward = 0.0
+
+        if info["success"]:
+            reward += self.num_stages
+            return reward
+
+        if self.current_stage[0]:
+            reward += 1
+        if self.current_stage[1]:
+            reward += 1
+
+        return reward
+
     def get_state(self) -> np.ndarray:
         state = super().get_state()
-        return np.hstack([state, self.goal_pos])
+        return np.hstack([state, self.goal_pos,
+                          self.current_stage.astype(float)])
 
     def set_state(self, state):
-        self.goal_pos = state[-3:]
-        super().set_state(state[:-3])
+        self.current_stage = state[-self.num_stages:].astype(bool)
+        self.goal_pos = state[-3-self.num_stages:-self.num_stages]
+        super().set_state(state[:-3-self.num_stages])
         self._prev_actor_poses = {
             self.cube.name: self.cube.get_pose(),
             self.bowl.name: self.bowl.get_pose(),
@@ -464,6 +528,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                 return self.compute_sparse_grounded_sam_reward(**kwargs)
             else:
                 return 0.0
+        elif self._reward_mode == "sparse_staged":
+            return self.compute_staged_reward(**kwargs)
         else:
             return super().get_reward(**kwargs)
 
@@ -495,7 +561,6 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         super()._clear()
         self._multiview_render_cameras = OrderedDict()
 
-
     def render_rgb_pcd_images(self):
         """
         :return rgb_images: a list of [512, 512, 3] np.uint8 np.ndarray
@@ -514,7 +579,9 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             camera_captures = camera.get_images(take_picture=True)
 
             rgba = camera_captures["Color"]
-            rgb_images.append(np.clip(rgba[:, :, :3] * 255, 0, 255).astype(np.uint8))
+            rgb_images.append(
+                np.clip(rgba[:, :, :3] * 255, 0, 255).astype(np.uint8)
+            )
 
             pos_depth = camera_captures["Position"]
             xyz_image = pos_depth[:, :, :3]
@@ -641,9 +708,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
               no_static_checks=True)
 class PlaceCubeInBowlEasyEnv(PlaceCubeInBowlEnv):
     """Environment where robot gripper starts at grasping cube position"""
-    def __init__(self, *args, no_static_checks=False, **kwargs):
-        self.no_static_checks = no_static_checks
 
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.max_episode_steps = 20
@@ -651,11 +717,3 @@ class PlaceCubeInBowlEasyEnv(PlaceCubeInBowlEnv):
     def _initialize_agent(self):
         super()._initialize_agent()
         self.agent.robot.set_qpos(self.robot_grasp_cube_qpos)
-
-    def evaluate(self, **kwargs):
-        eval_dict = super().evaluate(**kwargs)
-
-        if self.no_static_checks:
-            eval_dict["success"] = (eval_dict["is_cube_inside"] and
-                                    eval_dict["is_bowl_upwards"])
-        return eval_dict
