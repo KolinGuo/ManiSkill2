@@ -272,6 +272,14 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
         self.cube.set_pose(cube_pose)
 
+    def _check_collision(self, num_steps=1) -> bool:
+        for _ in range(num_steps):
+            self._scene.step()
+
+        lin_vel = np.linalg.norm(self.bowl.velocity)
+        ang_vel = np.linalg.norm(self.bowl.angular_velocity)
+        return lin_vel > 1e-3 or ang_vel > 1e-2
+
     def _initialize_agent(self):
         super()._initialize_agent()
 
@@ -283,38 +291,49 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         # Build grasp pose
         cube_pose = self.cube.pose.to_transformation_matrix()
         cube_pos = cube_pose[:3, -1]
-        # Get the cube axis that has larger angle with cube_to_bowl
-        cube_x_axis, cube_y_axis = cube_pose[:3, 0], cube_pose[:3, 1]
-        cube_to_bowl = self.bowl.pose.p - cube_pos
-        ang_cube_x = angle_between_vec(cube_to_bowl, cube_x_axis)
-        ang_cube_x = min(ang_cube_x, np.pi - ang_cube_x)
-        ang_cube_y = angle_between_vec(cube_to_bowl, cube_y_axis)
-        ang_cube_y = min(ang_cube_y, np.pi - ang_cube_y)
-        if ang_cube_x > ang_cube_y:
-            closing = cube_x_axis
+        if self.control_mode == "pd_ee_delta_pos":  # ee position control
+            cur_ee_pose = self.tcp.pose
+            T_world_ee_poses = [Pose(cube_pos, cur_ee_pose.q)]
         else:
-            closing = cube_y_axis
+            # Get the cube axis that has larger angle with cube_to_bowl
+            cube_x_axis, cube_y_axis = cube_pose[:3, 0], cube_pose[:3, 1]
+            cube_to_bowl = self.bowl.pose.p - cube_pos
+            ang_cube_x = angle_between_vec(cube_to_bowl, cube_x_axis)
+            ang_cube_x = min(ang_cube_x, np.pi - ang_cube_x)
+            ang_cube_y = angle_between_vec(cube_to_bowl, cube_y_axis)
+            ang_cube_y = min(ang_cube_y, np.pi - ang_cube_y)
+            if ang_cube_x > ang_cube_y:
+                closing = cube_x_axis
+            else:
+                closing = cube_y_axis
 
-        T_world_ee_poses = [
-            self.agent.build_grasp_pose([0, 0, -1], closing, cube_pos),
-            self.agent.build_grasp_pose([0, 0, -1], -closing, cube_pos),
-        ]
+            T_world_ee_poses = [
+                self.agent.build_grasp_pose([0, 0, -1], closing, cube_pos),
+                self.agent.build_grasp_pose([0, 0, -1], -closing, cube_pos),
+            ]
         T_world_robot = self.agent.robot.pose
         T_robot_ee_poses = [T_world_robot.inv().transform(T_we)
                             for T_we in T_world_ee_poses]
 
         # Compute IK
+        cur_robot_qpos = self.agent.robot.get_qpos()
         for T_robot_ee in T_robot_ee_poses:
             qpos, success, error = self.pmodel.compute_inverse_kinematics(
                 self.ee_link_idx, T_robot_ee,
-                initial_qpos=self.agent.robot.get_qpos(),
+                initial_qpos=cur_robot_qpos,
                 max_iterations=100
             )
-            if success:
+            if not success:  # No feasible IK
+                continue
+
+            # Check collision
+            self.agent.robot.set_qpos(qpos)  # set to target qpos
+            if not self._check_collision():
                 self.robot_grasp_cube_qpos = qpos
+                self.agent.robot.set_qpos(cur_robot_qpos)  # Reset qpos
                 break
         else:
-            print("[ENV] No successful grasp pose found!")
+            print("[ENV] No successful collision-free grasp pose found!")
             # Attempt to reset bowl/cube position
             self._initialize_actors()
             self._initialize_agent()
@@ -600,7 +619,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             self.grounded_sam = GroundedSAM(
                 grounding_dino_model_variant='swin-b',
                 sam_model_variant='vit_h',
-                device="cuda:1"
+                device="cuda:0"
             )
 
             import os
