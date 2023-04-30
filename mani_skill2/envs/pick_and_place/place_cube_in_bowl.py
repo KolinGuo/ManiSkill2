@@ -57,11 +57,17 @@ def get_axis_aligned_bbox_for_cube(cube_actor):
               fix_init_bowl_pos=True, dist_cube_bowl=0.15,
               reward_mode="sparse_staged", stage_obs=True,
               no_static_checks=True)
+@register_env("PlaceCubeInBowlStaged-v3",
+              max_episode_steps=50, extra_state_obs=True,
+              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+              reward_mode="sparse_staged_v2", stage_obs=True,
+              no_robot_static_checks=True)
 class PlaceCubeInBowlEnv(StationaryManipulationEnv):
     DEFAULT_ASSET_ROOT = "{ASSET_DIR}/mani_skill2_ycb"
     DEFAULT_MODEL_JSON = "info_pick_v0.json"
 
     SUPPORTED_REWARD_MODES = ("dense", "sparse", "sparse_staged",
+                              "sparse_staged_v2",
                               "sparse_last_grounded_sam")
 
     def __init__(self, *args,
@@ -76,6 +82,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                  stage_obs=False,
                  tcp_to_cube_dist_thres=0.015,
                  no_static_checks=False,
+                 no_robot_static_checks=False,
                  **kwargs):
         if asset_root is None:
             asset_root = self.DEFAULT_ASSET_ROOT
@@ -112,6 +119,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self.dist_cube_bowl = dist_cube_bowl
 
         self.no_static_checks = no_static_checks
+        self.no_robot_static_checks = no_robot_static_checks
 
         self.pmodel = None
 
@@ -454,10 +462,13 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         )
         eval_dict.update(self.get_cost())
 
-        if self.no_static_checks:
+        if self.no_robot_static_checks:
+            eval_dict["success"] = (is_cube_inside and is_cube_static and
+                                    is_bowl_static and is_bowl_upwards)
+        elif self.no_static_checks:
             eval_dict["success"] = is_cube_inside and is_bowl_upwards
 
-        if self._reward_mode == "sparse_staged":
+        if self._reward_mode in ["sparse_staged", "sparse_staged_v2"]:
             tcp_to_cube_dist = eval_dict["tcp_to_cube_dist"]
             if tcp_to_cube_dist < self.tcp_to_cube_dist_thres:
                 self.current_stage[0] = True
@@ -526,6 +537,24 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
         return reward
 
+    def compute_staged_reward_v2(self, info, **kwargs) -> float:
+        reward = 0.0
+
+        if info["success"]:
+            reward += self.num_stages + 1
+            return reward
+
+        tcp_to_cube_dist = info["tcp_to_cube_dist"]
+        reaching_reward = 1 - np.tanh(5 * tcp_to_cube_dist)
+        reward += reaching_reward
+
+        if self.current_stage[0]:
+            reward += 1
+        if self.current_stage[1]:
+            reward += 1
+
+        return reward
+
     def get_state(self) -> np.ndarray:
         state = super().get_state()
         return np.hstack([state, self.goal_pos,
@@ -549,6 +578,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                 return 0.0
         elif self._reward_mode == "sparse_staged":
             return self.compute_staged_reward(**kwargs)
+        elif self._reward_mode == "sparse_staged_v2":
+            return self.compute_staged_reward_v2(**kwargs)
         else:
             return super().get_reward(**kwargs)
 
