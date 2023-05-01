@@ -62,6 +62,17 @@ def get_axis_aligned_bbox_for_cube(cube_actor):
               fix_init_bowl_pos=True, dist_cube_bowl=0.15,
               reward_mode="sparse_staged_v2", stage_obs=True,
               no_robot_static_checks=True)
+@register_env("PlaceCubeInBowlStaged-v4",
+              max_episode_steps=50, extra_state_obs=True,
+              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+              reward_mode="sparse_staged_v2", stage_obs=True,
+              no_robot_static_checks=True, stage2_check_stage1=False)
+@register_env("PlaceCubeInBowlStaged-v5",
+              max_episode_steps=50, extra_state_obs=True,
+              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+              reward_mode="sparse_staged_v2", stage_obs=True,
+              no_robot_static_checks=True, stage2_check_stage1=False,
+              no_reaching_reward_in_stage2=True)
 class PlaceCubeInBowlEnv(StationaryManipulationEnv):
     DEFAULT_ASSET_ROOT = "{ASSET_DIR}/mani_skill2_ycb"
     DEFAULT_MODEL_JSON = "info_pick_v0.json"
@@ -83,6 +94,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                  tcp_to_cube_dist_thres=0.015,
                  no_static_checks=False,
                  no_robot_static_checks=False,
+                 stage2_check_stage1=True,
+                 no_reaching_reward_in_stage2=False,
                  **kwargs):
         if asset_root is None:
             asset_root = self.DEFAULT_ASSET_ROOT
@@ -120,6 +133,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
         self.no_static_checks = no_static_checks
         self.no_robot_static_checks = no_robot_static_checks
+        self.stage2_check_stage1 = stage2_check_stage1
+        self.no_reaching_reward_in_stage2 = no_reaching_reward_in_stage2
 
         self.pmodel = None
 
@@ -472,7 +487,11 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             tcp_to_cube_dist = eval_dict["tcp_to_cube_dist"]
             if tcp_to_cube_dist < self.tcp_to_cube_dist_thres:
                 self.current_stage[0] = True
-            if self.current_stage[0] and is_cube_inside:
+            if (self.stage2_check_stage1 and
+                    self.current_stage[0] and is_cube_inside):
+                self.current_stage[1] = True
+            elif (not self.stage2_check_stage1 and
+                    is_cube_inside and is_bowl_upwards):
                 self.current_stage[1] = True
             if eval_dict["success"]:
                 self.current_stage[-1] = True
@@ -544,14 +563,15 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             reward += self.num_stages + 1
             return reward
 
-        tcp_to_cube_dist = info["tcp_to_cube_dist"]
-        reaching_reward = 1 - np.tanh(5 * tcp_to_cube_dist)
-        reward += reaching_reward
+        if not (self.no_reaching_reward_in_stage2 and self.current_stage[1]):
+            tcp_to_cube_dist = info["tcp_to_cube_dist"]
+            reaching_reward = 1 - np.tanh(5 * tcp_to_cube_dist)
+            reward += reaching_reward
 
         if self.current_stage[0]:
             reward += 1
         if self.current_stage[1]:
-            reward += 1
+            reward += 1 if not self.no_reaching_reward_in_stage2 else 2
 
         return reward
 
@@ -588,8 +608,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         super()._setup_cameras()
 
         poses = []
-        poses.append(look_at([0.4, 0.4, 0.8], [0.0, 0.0, 0.4]))
-        poses.append(look_at([0.4, -0.4, 0.8], [0.0, 0.0, 0.4]))
+        poses.append(look_at([0.4, 0.4, 0.4], [0.0, 0.0, 0.2]))
+        poses.append(look_at([0.4, -0.4, 0.4], [0.0, 0.0, 0.2]))
 
         camera_configs = []
         for i, pose in enumerate(poses):
