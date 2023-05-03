@@ -565,9 +565,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             reward = 10.0
             return reward
 
-        cube_to_goal_dist = info["cube_to_goal_dist"]
-        cube_near_goal = cube_to_goal_dist <= self.cube_half_size[0]
-        if cube_near_goal and info["is_bowl_upwards"]:
+        if info["is_cube_inside"] and info["is_bowl_upwards"]:
             reward = 5.0
 
             # ungrasp reward
@@ -581,6 +579,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
             if info["is_cube_grasped"]:
                 reward += 1.0
+                cube_to_goal_dist = info["cube_to_goal_dist"]
                 place_reward = 1 - np.tanh(5 * cube_to_goal_dist)
                 reward += place_reward
 
