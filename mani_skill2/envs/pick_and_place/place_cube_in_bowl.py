@@ -566,7 +566,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             return reward
 
         cube_to_goal_dist = info["cube_to_goal_dist"]
-        if cube_to_goal_dist <= 0.005 and info["is_bowl_upwards"]:
+        cube_near_goal = cube_to_goal_dist <= self.cube_half_size[0]
+        if cube_near_goal and info["is_bowl_upwards"]:
             reward = 5.0
 
             # ungrasp reward
