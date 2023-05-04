@@ -48,13 +48,21 @@ def main():
         if args.control_mode is not None and not args.control_mode.startswith("base"):
             args.control_mode = "base_pd_joint_vel_arm_" + args.control_mode
 
-    env: BaseEnv = gym.make(
-        args.env_id,
-        obs_mode=args.obs_mode,
-        reward_mode=args.reward_mode,
-        control_mode=args.control_mode,
-        **args.env_kwargs
-    )
+    if args.reward_mode is not None:
+        env: BaseEnv = gym.make(
+            args.env_id,
+            obs_mode=args.obs_mode,
+            reward_mode=args.reward_mode,
+            control_mode=args.control_mode,
+            **args.env_kwargs
+        )
+    else:
+        env: BaseEnv = gym.make(
+            args.env_id,
+            obs_mode=args.obs_mode,
+            control_mode=args.control_mode,
+            **args.env_kwargs
+        )
 
     record_dir = args.record_dir
     if record_dir:
