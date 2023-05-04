@@ -87,6 +87,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
     DEFAULT_ASSET_ROOT = "{ASSET_DIR}/mani_skill2_ycb"
     DEFAULT_MODEL_JSON = "info_pick_v0.json"
 
+    SUPPORTED_IMAGE_OBS_MODES = ("hand_base", "sideview")
     SUPPORTED_REWARD_MODES = ("dense", "dense_v2", "sparse", "sparse_staged",
                               "sparse_staged_v2", "sparse_staged_v3",
                               "sparse_last_grounded_sam")
@@ -95,6 +96,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                  asset_root: str = None,
                  model_json: str = None,
                  model_ids: List[str] = ('024_bowl'),
+                 image_obs_mode=None,
                  obj_init_rot_z=True,
                  obj_init_rot=0,
                  extra_state_obs=False,
@@ -154,6 +156,13 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
         self._check_assets()
         super().__init__(*args, **kwargs)
+
+        # Image obs mode
+        if image_obs_mode is None:
+            image_obs_mode = self.SUPPORTED_IMAGE_OBS_MODES[0]
+        if image_obs_mode not in self.SUPPORTED_IMAGE_OBS_MODES:
+            raise NotImplementedError("Unsupported image obs mode: {}".format(image_obs_mode))
+        self._image_obs_mode = image_obs_mode
 
         self.max_episode_steps = 50
 
@@ -675,6 +684,45 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             return super().get_reward(**kwargs)
 
     # Add multi-view cameras
+    def take_picture_sideview(self):
+        """Take pictures from all cameras (non-blocking)."""
+        for cam in self._sideview_cameras.values():
+            cam.take_picture()
+
+    def get_images_sideview(self) -> Dict[str, Dict[str, np.ndarray]]:
+        """Get (raw) images from all cameras (blocking)."""
+        images = OrderedDict()
+        for name, cam in self._sideview_cameras.items():
+            images[name] = cam.get_images()
+        return images
+
+    def get_camera_params_sideview(self) -> Dict[str, Dict[str, np.ndarray]]:
+        """Get camera parameters from all cameras."""
+        params = OrderedDict()
+        for name, cam in self._sideview_cameras.items():
+            params[name] = cam.get_params()
+        return params
+
+    def _get_obs_images(self) -> OrderedDict:
+        if self._image_obs_mode == "hand_base":
+            return super()._get_obs_images()
+
+        assert self._image_obs_mode == "sideview"
+
+        if self._renderer_type == "client":
+            # NOTE: not compatible with StereoDepthCamera
+            cameras = [x.camera for x in self._sideview_cameras.values()]
+            self._scene._update_render_and_take_pictures(cameras)
+        else:
+            self.update_render()
+            self.take_picture_sideview()
+        return OrderedDict(
+            agent=self._get_obs_agent(),
+            extra=self._get_obs_extra(),
+            camera_param=self.get_camera_params_sideview(),
+            image=self.get_images_sideview(),
+        )
+
     def _setup_cameras(self):
         super()._setup_cameras()
 
@@ -684,23 +732,23 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
         camera_configs = []
         for i, pose in enumerate(poses):
-            camera_cfg = CameraConfig(f"multiview_render_camera_{i}",
+            camera_cfg = CameraConfig(f"sideview_camera_{i}",
                                       pose.p, pose.q, 512, 512, 1, 0.01, 10)
             camera_cfg.texture_names += ("Segmentation",)
             camera_configs.append(camera_cfg)
 
-        self._multiview_render_camera_cfgs = parse_camera_cfgs(camera_configs)
+        self._sideview_camera_cfgs = parse_camera_cfgs(camera_configs)
 
-        self._multiview_render_cameras = OrderedDict()
+        self._sideview_cameras = OrderedDict()
         if self._renderer_type != "client":
-            for uid, camera_cfg in self._multiview_render_camera_cfgs.items():
-                self._multiview_render_cameras[uid] = Camera(
+            for uid, camera_cfg in self._sideview_camera_cfgs.items():
+                self._sideview_cameras[uid] = Camera(
                     camera_cfg, self._scene, self._renderer_type
                 )
 
     def _clear(self):
         super()._clear()
-        self._multiview_render_cameras = OrderedDict()
+        self._sideview_cameras = OrderedDict()
 
     def render_rgb_pcd_images(self):
         """
@@ -716,7 +764,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         rgb_images = []
         xyz_images = []  # xyz_images in world coordinates
         xyz_masks = []   # xyz_mask for valid points
-        for camera in self._multiview_render_cameras.values():
+        for camera in self._sideview_cameras.values():
             camera_captures = camera.get_images(take_picture=True)
 
             rgba = camera_captures["Color"]
