@@ -109,6 +109,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                  stage2_check_stage1=True,
                  no_reaching_reward_in_stage2=False,
                  success_needs_ungrasp=False,
+                 ungrasp_sparse_reward=False,
+                 ungrasp_reward_scale=1.0,
                  **kwargs):
         if asset_root is None:
             asset_root = self.DEFAULT_ASSET_ROOT
@@ -144,11 +146,14 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self.fix_init_bowl_pos = fix_init_bowl_pos
         self.dist_cube_bowl = dist_cube_bowl
 
+        # Debug success evaluation and reward
         self.no_static_checks = no_static_checks
         self.no_robot_static_checks = no_robot_static_checks
         self.stage2_check_stage1 = stage2_check_stage1
         self.no_reaching_reward_in_stage2 = no_reaching_reward_in_stage2
         self.success_needs_ungrasp = success_needs_ungrasp
+        self.ungrasp_sparse_reward = ungrasp_sparse_reward
+        self.ungrasp_reward_scale = ungrasp_reward_scale
 
         self.pmodel = None
 
@@ -578,9 +583,12 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             reward = 5.0
 
             # ungrasp reward
-            max_gripper_width = self.agent.robot.get_qlimits()[-2:, -1].sum()
-            gripper_width = self.agent.robot.get_qpos()[-2:].sum()
-            reward += gripper_width / max_gripper_width
+            if self.ungrasp_sparse_reward and (not info["is_cube_grasped"]):
+                reward += 1.0
+            else:
+                max_gripper_width = self.agent.robot.get_qlimits()[-2:, -1].sum()
+                gripper_width = self.agent.robot.get_qpos()[-2:].sum()
+                reward += gripper_width / max_gripper_width * self.ungrasp_reward_scale
         else:
             tcp_to_cube_dist = info["tcp_to_cube_dist"]
             reaching_reward = 1 - np.tanh(5 * tcp_to_cube_dist)
