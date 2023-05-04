@@ -104,6 +104,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                  dist_cube_bowl=0.2,
                  stage_obs=False,
                  tcp_to_cube_dist_thres=0.015,
+                 check_collision_during_init=True,
                  no_static_checks=False,
                  no_robot_static_checks=False,
                  stage2_check_stage1=True,
@@ -145,6 +146,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self.extra_state_obs = extra_state_obs
         self.fix_init_bowl_pos = fix_init_bowl_pos
         self.dist_cube_bowl = dist_cube_bowl
+        self.check_collision_during_init = check_collision_during_init
 
         # Debug success evaluation and reward
         self.no_static_checks = no_static_checks
@@ -372,17 +374,22 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                 initial_qpos=cur_robot_qpos,
                 max_iterations=100
             )
-            if not success:  # No feasible IK
-                continue
-
-            # Check collision
-            self.agent.robot.set_qpos(qpos)  # set to target qpos
-            if not self._check_collision():
+            if (not self.check_collision_during_init) and success:
                 self.robot_grasp_cube_qpos = qpos
-                self.agent.robot.set_qpos(cur_robot_qpos)  # Reset qpos
                 break
+            elif self.check_collision_during_init:
+                # NOTE: turn off check collision, can lead to weird placement
+                if not success:  # No feasible IK
+                    continue
+
+                # Check collision
+                self.agent.robot.set_qpos(qpos)  # set to target qpos
+                if not self._check_collision():
+                    self.robot_grasp_cube_qpos = qpos
+                    self.agent.robot.set_qpos(cur_robot_qpos)  # Reset qpos
+                    break
         else:
-            print("[ENV] No successful collision-free grasp pose found!")
+            print("[ENV] No successful grasp pose found!")
             # Attempt to reset bowl/cube position
             self._initialize_actors()
             self._initialize_agent()
@@ -585,7 +592,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             # ungrasp reward
             if self.ungrasp_sparse_reward and (not info["is_cube_grasped"]):
                 reward += 1.0
-            else:
+            elif not self.ungrasp_sparse_reward:
                 max_gripper_width = self.agent.robot.get_qlimits()[-2:, -1].sum()
                 gripper_width = self.agent.robot.get_qpos()[-2:].sum()
                 reward += gripper_width / max_gripper_width * self.ungrasp_reward_scale
