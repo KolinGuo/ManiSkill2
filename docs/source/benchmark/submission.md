@@ -41,7 +41,7 @@ Here is an example of how to customize the base docker image.
 FROM haosulab/mani-skill2:latest
 
 # Install additional python packages you need
-RUN pip install pytorch==1.12.1
+RUN pip install torch==1.12.1
 
 # Copy your codes (including user_solution.py) and model weights
 COPY ${YOUR_CODES_AND_WEIGHTS_IN_HOST} ${YOUR_CODES_AND_WEIGHTS_IN_CONTAINER}
@@ -52,7 +52,9 @@ Given a Dockerfile, you can build your submission docker image.
 
 ```bash
 # It is suggested to run this command under the directory containing Dockerfile
-docker build -f ${PATH_TO_YOUR_DOCKERFILE} -t mani-skill2-submission
+# See https://docs.docker.com/engine/reference/commandline/build/ for more details
+# Here PATH_TO_BUILD_CONTEXT is the local path context under which the docker building instructions like COPY should reference the files.
+docker build -f ${PATH_TO_YOUR_DOCKERFILE} ${PATH_TO_BUILD_CONTEXT} -t mani-skill2-submission
 ```
 
 Finally, you can tag your image and push it to a public docker registry (e.g., [Dockerhub](https://hub.docker.com/)).

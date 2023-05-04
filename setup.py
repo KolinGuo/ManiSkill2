@@ -14,7 +14,7 @@ def read_requirements():
 
 setup(
     name="mani_skill2",
-    version="0.4.0",
+    version="0.4.2",
     description="ManiSkill2: A Unified Benchmark for Generalizable Manipulation Skills",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -51,6 +51,7 @@ setup(
             "sphinx_copybutton",
             # Markdown parser
             "myst-parser",
+            "sphinx-subfigure",
         ],
     },
 )

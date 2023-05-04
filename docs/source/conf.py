@@ -20,10 +20,13 @@ extensions = [
     "sphinx.ext.mathjax",
     "sphinx_copybutton",
     "myst_parser",
+    "sphinx_subfigure",
 ]
 
 # https://myst-parser.readthedocs.io/en/latest/syntax/optional.html
 myst_enable_extensions = ["colon_fence", "dollarmath"]
+# https://github.com/executablebooks/MyST-Parser/issues/519#issuecomment-1037239655
+myst_heading_anchors = 4
 
 templates_path = ["_templates"]
 exclude_patterns = []
@@ -41,5 +44,5 @@ html_context = {
     "display_github": True,
     "github_user": "haosulab",
     "github_repo": "ManiSkill2",
-    "github_version": "main/docs/",
+    "github_version": "main/docs/source/",
 }

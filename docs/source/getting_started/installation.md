@@ -17,7 +17,7 @@ From source:
 
 ```bash
 git clone https://github.com/haosulab/ManiSkill2.git
-cd ManiSkill && pip install -e .
+cd ManiSkill2 && pip install -e .
 ```
 
 :::{note}
@@ -27,10 +27,12 @@ A GPU with the Vulkan driver installed is required to enable rendering in ManiSk
 The rigid-body environments, powered by SAPIEN, are ready to use after installation. Test your installation:
 
 ```bash
+# Run an episode (at most 200 steps) of "PickCube-v0" (a rigid-body environment) with random actions
+# Or specify an environment by "-e ${ENV_ID}"
 python -m mani_skill2.examples.demo_random_action
 ```
 
-Besides, we provide a docker image (`haosulab/mani-skill2`) and its corresponding [Dockerfile](https://github.com/haosulab/ManiSkill2/blob/main/docker/Dockerfile).
+Besides, we provide a docker image (`haosulab/mani-skill2`) on [Docker Hub](https://hub.docker.com/repository/docker/haosulab/mani-skill2/general), and its corresponding [Dockerfile](https://github.com/haosulab/ManiSkill2/blob/main/docker/Dockerfile).
 
 ## Warp (ManiSkill2-version)
 
@@ -99,8 +101,9 @@ vulkaninfo
 
 If `vulkaninfo` fails to show the information about Vulkan, please check whether the following files exist:
 
-- `/usr/share/vulkan/icd.d/nvidia_icd.json`:
+- `/usr/share/vulkan/icd.d/nvidia_icd.json`
 - `/usr/share/glvnd/egl_vendor.d/10_nvidia.json`
+- `/etc/vulkan/implicit_layer.d/nvidia_layers.json` (optional, but necessary for some GPUs like A100)
 
 If `/usr/share/vulkan/icd.d/nvidia_icd.json` does not exist, try to create the file with the following content:
 
@@ -121,6 +124,32 @@ If `/usr/share/glvnd/egl_vendor.d/10_nvidia.json` does not exist, you can try `s
     "file_format_version" : "1.0.0",
     "ICD" : {
         "library_path" : "libEGL_nvidia.so.0"
+    }
+}
+```
+
+If `/etc/vulkan/implicit_layer.d/nvidia_layers.json` does not exist, try to create the file with the following content:
+
+```json
+{
+    "file_format_version" : "1.0.0",
+    "layer": {
+        "name": "VK_LAYER_NV_optimus",
+        "type": "INSTANCE",
+        "library_path": "libGLX_nvidia.so.0",
+        "api_version" : "1.2.155",
+        "implementation_version" : "1",
+        "description" : "NVIDIA Optimus layer",
+        "functions": {
+            "vkGetInstanceProcAddr": "vk_optimusGetInstanceProcAddr",
+            "vkGetDeviceProcAddr": "vk_optimusGetDeviceProcAddr"
+        },
+        "enable_environment": {
+            "__NV_PRIME_RENDER_OFFLOAD": "1"
+        },
+        "disable_environment": {
+            "DISABLE_LAYER_NV_OPTIMUS_1": ""
+        }
     }
 }
 ```
