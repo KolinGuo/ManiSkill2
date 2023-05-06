@@ -7,6 +7,7 @@ from sapien.core import Pose
 from mani_skill2.agents.base_agent import BaseAgent
 from mani_skill2.agents.robots.panda import Panda, FloatingPanda
 from mani_skill2.agents.robots.xmate3 import Xmate3Robotiq
+from mani_skill2.agents.robots.xarm import XArm7
 from mani_skill2.envs.sapien_env import BaseEnv
 from mani_skill2.sensors.camera import CameraConfig
 from mani_skill2.utils.sapien_utils import (
@@ -19,7 +20,7 @@ from mani_skill2.utils.sapien_utils import (
 
 class StationaryManipulationEnv(BaseEnv):
     SUPPORTED_ROBOTS = {"panda": Panda, "floating_panda": FloatingPanda,
-                        "xmate3_robotiq": Xmate3Robotiq}
+                        "xmate3_robotiq": Xmate3Robotiq, "xarm7": XArm7}
     agent: Union[Panda, FloatingPanda,  Xmate3Robotiq]
 
     def __init__(self, *args, robot="panda", robot_init_qpos_noise=0.02, **kwargs):
@@ -105,6 +106,15 @@ class StationaryManipulationEnv(BaseEnv):
             )
             self.agent.reset(qpos)
             self.agent.robot.set_pose(Pose([-0.562, 0, 0]))
+        elif self.robot_uid == 'xarm7':
+            qpos = np.array(
+                [0, 0, 0, 0, 0, 0, 0, 0.04, 0.04]
+            )
+            qpos[:-2] += self._episode_rng.normal(
+                0, self.robot_init_qpos_noise, len(qpos) - 2
+            )
+            self.agent.reset(qpos)
+            self.agent.robot.set_pose(Pose([-0.5, 0.0, 0.2]))
         else:
             raise NotImplementedError(self.robot_uid)
 
@@ -128,6 +138,15 @@ class StationaryManipulationEnv(BaseEnv):
             )
             self.agent.reset(qpos)
             self.agent.robot.set_pose(Pose([-0.562, 0, 0]))
+        elif self.robot_uid == 'xarm7':
+            qpos = np.array(
+                [0, 0, 0, 0, 0, 0, 0, 0.04, 0.04]
+            )
+            qpos[:-2] += self._episode_rng.normal(
+                0, self.robot_init_qpos_noise, len(qpos) - 2
+            )
+            self.agent.reset(qpos)
+            self.agent.robot.set_pose(Pose([-0.5, 0.0, 0.2]))
         else:
             raise NotImplementedError(self.robot_uid)
 

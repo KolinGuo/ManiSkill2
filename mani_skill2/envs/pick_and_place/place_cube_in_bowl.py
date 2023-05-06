@@ -162,7 +162,6 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self.grounded_sam = None
 
         self._check_assets()
-        super().__init__(*args, **kwargs)
 
         # Image obs mode
         if image_obs_mode is None:
@@ -172,6 +171,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self._image_obs_mode = image_obs_mode
 
         self.max_episode_steps = 50
+        
+        super().__init__(*args, **kwargs)
 
     def _check_assets(self):
         models_dir = self.asset_root / "models"
