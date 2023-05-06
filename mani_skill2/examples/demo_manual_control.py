@@ -274,6 +274,7 @@ def main():
         print("reward", reward)
         print("done", done)
         print("info", info)
+        print(env.agent.robot.get_qpos())
 
     env.close()
 
