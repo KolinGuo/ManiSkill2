@@ -1,7 +1,7 @@
 import re
 from collections import OrderedDict
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 import numpy as np
 import sapien.core as sapien
@@ -410,8 +410,9 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
         self.goal_pos = bowl_pos + [0, 0, 0.05]
 
-        if self._reward_mode == "sparse_last_grounded_sam":
-            self._initialize_grounded_sam()
+        # FIXME: remove
+        # if self._reward_mode == "sparse_last_grounded_sam":
+        #     self._initialize_grounded_sam()
 
     def _get_obs_extra(self) -> OrderedDict:
         # Update goal_pos in case the bowl moves
@@ -709,11 +710,49 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         else:
             return super().get_reward(**kwargs)
 
+    def get_obs(self) -> OrderedDict:
+        """Append following keys to observation if using grounded_sam
+        :return sam_rgb_images: a odict of [512, 512, 3] np.uint8 np.ndarray
+        :return sam_xyz_images: a odict of [512, 512, 3] np.float32 np.ndarray
+                                per-pixel xyz coordinates in world frame
+        :return sam_xyz_masks: a odict of [512, 512] np.bool np.ndarray
+                               per-pixel valid mask
+                               (in front of the far plane of camera frustum)
+        """
+        obs = super().get_obs()
+        if isinstance(obs, np.ndarray):  # _obs_mode == "state"
+            obs = OrderedDict(state=obs)
+
+        # Adding grounded_sam image observation
+        if "grounded_sam" in self._reward_mode:
+            kwargs = {}
+            # Already rendered grounded_sam image views
+            if (self._obs_mode == "image"
+                    and self._image_obs_mode != "hand_base"):
+                kwargs["camera_params_dict"] = obs["camera_param"]
+                kwargs["camera_captures_dict"] = obs["image"]
+
+            (rgb_images_dict,
+                xyz_images_dict,
+                xyz_masks_dict) = self._render_rgb_pcd_images(**kwargs)
+
+            obs["sam_rgb_images"] = rgb_images_dict
+            obs["sam_xyz_images"] = xyz_images_dict
+            obs["sam_xyz_masks"] = xyz_masks_dict
+
+        return obs
+
     # Add multi-view cameras
-    def take_picture_sideview(self):
-        """Take pictures from all cameras (non-blocking)."""
-        for cam in self._sideview_cameras.values():
-            cam.take_picture()
+    def update_render_and_take_picture_sideview(self):
+        """Update render and take pictures from all cameras (non-blocking)."""
+        if self._renderer_type == "client":
+            # NOTE: not compatible with StereoDepthCamera
+            cameras = [x.camera for x in self._sideview_cameras.values()]
+            self._scene._update_render_and_take_pictures(cameras)
+        else:
+            self.update_render()
+            for cam in self._sideview_cameras.values():
+                cam.take_picture()
 
     def get_images_sideview(self) -> Dict[str, Dict[str, np.ndarray]]:
         """Get (raw) images from all cameras (blocking)."""
@@ -735,13 +774,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
         assert self._image_obs_mode == "sideview"
 
-        if self._renderer_type == "client":
-            # NOTE: not compatible with StereoDepthCamera
-            cameras = [x.camera for x in self._sideview_cameras.values()]
-            self._scene._update_render_and_take_pictures(cameras)
-        else:
-            self.update_render()
-            self.take_picture_sideview()
+        self.update_render_and_take_picture_sideview()
         return OrderedDict(
             agent=self._get_obs_agent(),
             extra=self._get_obs_extra(),
@@ -776,144 +809,152 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         super()._clear()
         self._sideview_cameras = OrderedDict()
 
-    def render_rgb_pcd_images(self):
+    def _render_rgb_pcd_images(
+        self, camera_params_dict=None, camera_captures_dict=None
+    ) -> Tuple[OrderedDict[str, np.ndarray], OrderedDict[str, np.ndarray],
+               OrderedDict[str, np.ndarray]]:
         """
-        :return rgb_images: a list of [512, 512, 3] np.uint8 np.ndarray
-        :return xyz_images: a list of [512, 512, 3] np.float32 np.ndarray
-                            per-pixel xyz coordinates in world frame
-        :return xyz_masks: a list of [512, 512] np.bool np.ndarray
-                           per-pixel valid mask
-                           (in front of the far plane of camera frustum)
+        :return rgb_images_dict: a odict of [512, 512, 3] np.uint8 np.ndarray
+        :return xyz_images_dict: a odict of [512, 512, 3] np.float32 np.ndarray
+                                 per-pixel xyz coordinates in world frame
+        :return xyz_masks_dict: a odict of [512, 512] np.bool np.ndarray
+                                per-pixel valid mask
+                                (in front of the far plane of camera frustum)
         """
-        self.update_render()
+        if camera_params_dict is None or camera_captures_dict is None:
+            self.update_render_and_take_picture_sideview()
+            camera_params_dict = self.get_camera_params_sideview()
+            camera_captures_dict = self.get_images_sideview()
 
-        rgb_images = []
-        xyz_images = []  # xyz_images in world coordinates
-        xyz_masks = []   # xyz_mask for valid points
-        for camera in self._sideview_cameras.values():
-            camera_captures = camera.get_images(take_picture=True)
+        rgb_images_dict = OrderedDict()
+        xyz_images_dict = OrderedDict()  # xyz_images in world coordinates
+        xyz_masks_dict = OrderedDict()   # xyz_mask for valid points
+        for cam_name in camera_captures_dict.keys():
+            camera_params = camera_params_dict[cam_name]
+            camera_captures = camera_captures_dict[cam_name]
 
             rgba = camera_captures["Color"]
-            rgb_images.append(
-                np.clip(rgba[:, :, :3] * 255, 0, 255).astype(np.uint8)
-            )
+            rgb_images_dict[cam_name] = np.clip(
+                rgba[:, :, :3] * 255, 0, 255
+            ).astype(np.uint8)
 
             pos_depth = camera_captures["Position"]
             xyz_image = pos_depth[:, :, :3]
-            xyz_masks.append(pos_depth[..., 3] < 1)
+            xyz_masks_dict[cam_name] = pos_depth[..., 3] < 1
 
             image_shape = xyz_image.shape[:2]
-            T = camera.camera.get_model_matrix()
+            T = camera_params["cam2world_gl"]
             xyz_image = xyz_image.reshape(-1, 3) @ T[:3, :3].T + T[:3, 3]
-            xyz_images.append(xyz_image.reshape(*image_shape, 3))
+            xyz_images_dict[cam_name] = xyz_image.reshape(*image_shape, 3)
 
-        return rgb_images, xyz_images, xyz_masks
+        return rgb_images_dict, xyz_images_dict, xyz_masks_dict
 
-    def _initialize_grounded_sam(self):
-        if self.grounded_sam is None:
-            from grounded_sam import GroundedSAM
-            self.grounded_sam = GroundedSAM(
-                grounding_dino_model_variant='swin-b',
-                sam_model_variant='vit_h',
-                device="cuda:0"
-            )
+    # FIXME: remove
+    # def _initialize_grounded_sam(self):
+    #     if self.grounded_sam is None:
+    #         from grounded_sam import GroundedSAM
+    #         self.grounded_sam = GroundedSAM(
+    #             grounding_dino_model_variant='swin-b',
+    #             sam_model_variant='vit_h',
+    #             device="cuda:0"
+    #         )
+    #         import os
+    #         self.grounded_sam_output_dir = Path(os.environ["log_dir"]) \
+    #             / 'grounded_sam'
 
-            import os
-            self.grounded_sam_output_dir = Path(os.environ["log_dir"]) \
-                / 'grounded_sam'
+    # FIXME: remove
+    # def compute_sparse_grounded_sam_reward(self, info, **kwargs) -> float:
+    #     # Render RGB images and pointclouds
+    #     rgb_images, xyz_images, xyz_masks = self.render_rgb_pcd_images()
 
-    def compute_sparse_grounded_sam_reward(self, info, **kwargs) -> float:
-        # Render RGB images and pointclouds
-        rgb_images, xyz_images, xyz_masks = self.render_rgb_pcd_images()
+    #     self.objects_text = ["green cube", "red bowl"]
+    #     self.prompt_with_robot_arm = True
 
-        self.objects_text = ["green cube", "red bowl"]
-        self.prompt_with_robot_arm = True
+    #     def find_most_confident_label(pred_phrases, label):
+    #         pred_label_idx = None
+    #         best_logit = 0.0
+    #         for i, pred_phrase in enumerate(pred_phrases):
+    #             pred_label, pred_logit = re.split('\(|\)', pred_phrase)[:2]
+    #             if label.lower() in pred_label and float(pred_logit) > best_logit:
+    #                 pred_label_idx = i
+    #                 best_logit = float(pred_logit)
+    #         return pred_label_idx
 
-        def find_most_confident_label(pred_phrases, label):
-            pred_label_idx = None
-            best_logit = 0.0
-            for i, pred_phrase in enumerate(pred_phrases):
-                pred_label, pred_logit = re.split('\(|\)', pred_phrase)[:2]
-                if label.lower() in pred_label and float(pred_logit) > best_logit:
-                    pred_label_idx = i
-                    best_logit = float(pred_logit)
-            return pred_label_idx
+    #     def save_pred_result(correct_pred: bool, rgb_images, text_prompt,
+    #                          boxes_filt_batch: List[np.ndarray],
+    #                          pred_phrases_batch: List[List[str]],
+    #                          pred_masks_batch: List[np.ndarray]):
+    #         for img_i, rgb_image in enumerate(rgb_images):
+    #             boxes_filt = boxes_filt_batch[img_i]
+    #             pred_phrases = pred_phrases_batch[img_i]
+    #             pred_masks = pred_masks_batch[img_i]
+    #             # Save pred_mask results
+    #             import uuid
+    #             self.grounded_sam.save_pred_result(
+    #                 self.grounded_sam_output_dir / (f'{correct_pred}_{self._elapsed_steps}_'+str(uuid.uuid4())),
+    #                 rgb_image, text_prompt,
+    #                 boxes_filt, pred_phrases, pred_masks
+    #             )
 
-        def save_pred_result(correct_pred: bool, rgb_images, text_prompt,
-                             boxes_filt_batch: List[np.ndarray],
-                             pred_phrases_batch: List[List[str]],
-                             pred_masks_batch: List[np.ndarray]):
-            for img_i, rgb_image in enumerate(rgb_images):
-                boxes_filt = boxes_filt_batch[img_i]
-                pred_phrases = pred_phrases_batch[img_i]
-                pred_masks = pred_masks_batch[img_i]
-                # Save pred_mask results
-                import uuid
-                self.grounded_sam.save_pred_result(
-                    self.grounded_sam_output_dir / (f'{correct_pred}_{self._elapsed_steps}_'+str(uuid.uuid4())),
-                    rgb_image, text_prompt,
-                    boxes_filt, pred_phrases, pred_masks
-                )
+    #     text_prompt = '. '.join(self.objects_text) + '.'
+    #     if self.prompt_with_robot_arm:
+    #         text_prompt += ' robot arm.'
 
-        text_prompt = '. '.join(self.objects_text) + '.'
-        if self.prompt_with_robot_arm:
-            text_prompt += ' robot arm.'
+    #     boxes_filt_batch, pred_phrases_batch, pred_masks_batch, _ = self.grounded_sam.predict(
+    #         np.stack(rgb_images), [text_prompt]*len(rgb_images)
+    #     )
 
-        boxes_filt_batch, pred_phrases_batch, pred_masks_batch, _ = self.grounded_sam.predict(
-            np.stack(rgb_images), [text_prompt]*len(rgb_images)
-        )
+    #     # Convert torch.Tensor to np.ndarray
+    #     boxes_filt_batch = [b.numpy() for b in boxes_filt_batch]
+    #     pred_masks_batch = [m.cpu().numpy() for m in pred_masks_batch]
 
-        # Convert torch.Tensor to np.ndarray
-        boxes_filt_batch = [b.numpy() for b in boxes_filt_batch]
-        pred_masks_batch = [m.cpu().numpy() for m in pred_masks_batch]
+    #     object_pcds = {}  # {object_text: object_pcd}
+    #     for img_i, rgb_image in enumerate(rgb_images):
+    #         xyz_image = xyz_images[img_i]
+    #         xyz_mask = xyz_masks[img_i]
+    #         boxes_filt = boxes_filt_batch[img_i]
+    #         pred_phrases = pred_phrases_batch[img_i]
+    #         pred_masks = pred_masks_batch[img_i]
 
-        object_pcds = {}  # {object_text: object_pcd}
-        for img_i, rgb_image in enumerate(rgb_images):
-            xyz_image = xyz_images[img_i]
-            xyz_mask = xyz_masks[img_i]
-            boxes_filt = boxes_filt_batch[img_i]
-            pred_phrases = pred_phrases_batch[img_i]
-            pred_masks = pred_masks_batch[img_i]
+    #         for object_text in self.objects_text:
+    #             pred_label_idx = find_most_confident_label(pred_phrases, object_text)
+    #             if pred_label_idx is None:  # object cannot be found
+    #                 save_pred_result(
+    #                     info["success"] == False, rgb_images,
+    #                     text_prompt + f'(env {info["success"]}, pred {False})',
+    #                     boxes_filt_batch, pred_phrases_batch, pred_masks_batch
+    #                 )
+    #                 return 0.0
+    #             pred_mask = pred_masks[pred_label_idx, 0]  # [H, W]
 
-            for object_text in self.objects_text:
-                pred_label_idx = find_most_confident_label(pred_phrases, object_text)
-                if pred_label_idx is None:  # object cannot be found
-                    save_pred_result(
-                        info["success"] == False, rgb_images,
-                        text_prompt + f'(env {info["success"]}, pred {False})',
-                        boxes_filt_batch, pred_phrases_batch, pred_masks_batch
-                    )
-                    return 0.0
-                pred_mask = pred_masks[pred_label_idx, 0]  # [H, W]
+    #             object_pcds[object_text] = xyz_image[xyz_mask & pred_mask]
 
-                object_pcds[object_text] = xyz_image[xyz_mask & pred_mask]
+    #     # Extract bbox from object_pcds
+    #     bowl_mins = object_pcds["red bowl"].min(0)
+    #     bowl_maxs = object_pcds["red bowl"].max(0)
+    #     cube_mins = object_pcds["green cube"].min(0)
+    #     cube_maxs = object_pcds["green cube"].max(0)
 
-        # Extract bbox from object_pcds
-        bowl_mins = object_pcds["red bowl"].min(0)
-        bowl_maxs = object_pcds["red bowl"].max(0)
-        cube_mins = object_pcds["green cube"].min(0)
-        cube_maxs = object_pcds["green cube"].max(0)
+    #     # For xy axes, cube need to be inside bowl
+    #     # For z axis, cube_z_max can be greater than bowl_z_max
+    #     #   by its half_length
+    #     if bowl_mins[0] <= cube_mins[0] and cube_maxs[0] <= bowl_maxs[0] and \
+    #        bowl_mins[1] <= cube_mins[1] and cube_maxs[1] <= bowl_maxs[1] and \
+    #        bowl_mins[2] <= cube_mins[2] and \
+    #        cube_maxs[2] <= bowl_maxs[2] + self.cube_half_size.max():
+    #         save_pred_result(
+    #             info["success"] == True, rgb_images,
+    #             text_prompt + f'(env {info["success"]}, pred {True})',
+    #             boxes_filt_batch, pred_phrases_batch, pred_masks_batch
+    #         )
+    #         return 1.0
 
-        # For xy axes, cube need to be inside bowl
-        # For z axis, cube_z_max can be greater than bowl_z_max
-        #   by its half_length
-        if bowl_mins[0] <= cube_mins[0] and cube_maxs[0] <= bowl_maxs[0] and \
-           bowl_mins[1] <= cube_mins[1] and cube_maxs[1] <= bowl_maxs[1] and \
-           bowl_mins[2] <= cube_mins[2] and \
-           cube_maxs[2] <= bowl_maxs[2] + self.cube_half_size.max():
-            save_pred_result(
-                info["success"] == True, rgb_images,
-                text_prompt + f'(env {info["success"]}, pred {True})',
-                boxes_filt_batch, pred_phrases_batch, pred_masks_batch
-            )
-            return 1.0
-
-        save_pred_result(
-            info["success"] == False, rgb_images,
-            text_prompt + f'(env {info["success"]}, pred {False})',
-            boxes_filt_batch, pred_phrases_batch, pred_masks_batch
-        )
-        return 0.0
+    #     save_pred_result(
+    #         info["success"] == False, rgb_images,
+    #         text_prompt + f'(env {info["success"]}, pred {False})',
+    #         boxes_filt_batch, pred_phrases_batch, pred_masks_batch
+    #     )
+    #     return 0.0
 
 
 @register_env("PlaceCubeInBowlEasy-v0", max_episode_steps=20, extra_state_obs=True,
