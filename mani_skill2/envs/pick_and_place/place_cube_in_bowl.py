@@ -170,8 +170,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             raise NotImplementedError("Unsupported image obs mode: {}".format(image_obs_mode))
         self._image_obs_mode = image_obs_mode
 
-        self.max_episode_steps = 50
-        
+        self.max_episode_steps = 50  # FIXME: maybe unnecessary
+
         super().__init__(*args, **kwargs)
 
     def _check_assets(self):
@@ -375,13 +375,16 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                 initial_qpos=cur_robot_qpos,
                 max_iterations=100
             )
+
+            # NOTE: Open gripper (currently, xarm7 gripper is opened at q_min)
             if 'panda' in self.robot_uid:
-                open_gripper_qlim_idx = 1  # the "open" qlimit index of the gripper
+                open_gripper_q_idx = 1  # the "open" qlimit index of the gripper
             elif 'xarm' in self.robot_uid:
-                open_gripper_qlim_idx = 0
+                open_gripper_q_idx = 0
             else:
                 raise NotImplementedError()
-            qpos[-2:] = self.agent.robot.get_qlimits()[-2:, open_gripper_qlim_idx] # open the gripper
+            qpos[-2:] = self.agent.robot.get_qlimits()[-2:, open_gripper_q_idx]
+
             if (not self.check_collision_during_init) and success:
                 self.robot_grasp_cube_qpos = qpos
                 break
@@ -399,8 +402,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         else:
             print("[ENV] No successful grasp pose found!")
             # Attempt to reset bowl/cube position
-            # self._initialize_actors()
-            # self._initialize_agent()
+            self._initialize_actors()
+            self._initialize_agent()
 
     def _initialize_task(self, max_trials=100, verbose=False):
         bowl_pos = self.bowl.pose.p

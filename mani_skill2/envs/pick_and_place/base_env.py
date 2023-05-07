@@ -21,7 +21,7 @@ from mani_skill2.utils.sapien_utils import (
 class StationaryManipulationEnv(BaseEnv):
     SUPPORTED_ROBOTS = {"panda": Panda, "floating_panda": FloatingPanda,
                         "xmate3_robotiq": Xmate3Robotiq, "xarm7": XArm7}
-    agent: Union[Panda, FloatingPanda,  Xmate3Robotiq]
+    agent: Union[Panda, FloatingPanda,  Xmate3Robotiq, XArm7]
 
     def __init__(self, *args, robot="panda", robot_init_qpos_noise=0.02, **kwargs):
         self.robot_uid = robot
