@@ -163,8 +163,6 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self.grounded_sam = None
         
         self.real_setup = real_setup
-        if self.real_setup:
-            assert self._image_obs_mode == "sideview"
 
         self._check_assets()
 
@@ -174,6 +172,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         if image_obs_mode not in self.SUPPORTED_IMAGE_OBS_MODES:
             raise NotImplementedError("Unsupported image obs mode: {}".format(image_obs_mode))
         self._image_obs_mode = image_obs_mode
+        if self.real_setup:
+            assert self._image_obs_mode == "sideview"
 
         self.max_episode_steps = 50
         
@@ -803,7 +803,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             ]
         else:
             pose = look_at([0.4, -1.1, 0.5], [0.4, 0.2, -0.2])
-            return CameraConfig("render_camera", pose.p, pose.q, 512, 512, 1, 0.01, 10)
+            return CameraConfig("render_camera", pose.p, pose.q, 640, 480, 1, 0.01, 10)
         
     def _clear(self):
         super()._clear()
