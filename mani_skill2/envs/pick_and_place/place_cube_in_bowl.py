@@ -163,6 +163,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self.grounded_sam = None
         
         self.real_setup = real_setup
+        if self.real_setup:
+            assert self._image_obs_mode == "sideview"
 
         self._check_assets()
 
@@ -267,7 +269,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         # The object will fall from a certain height
         if self.real_setup:
             xy = self._episode_rng.uniform([0.4, -0.4], [0.7, 0.0], [2])
-            print(xy)
+            # print(xy)
         elif self.fix_init_bowl_pos:
             xy = self._episode_rng.uniform([-0.1, -0.05], [0, 0.05], [2])
         else:
@@ -457,9 +459,9 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                 obs.update(
                     stage=self.current_stage.astype(float)
                 )
-        print("goal", self.goal_pos)
-        print("bowl", self.bowl.pose)
-        print("cube", self.cube.pose)
+        # print("goal", self.goal_pos)
+        # print("bowl", self.bowl.pose)
+        # print("cube", self.cube.pose)
         return obs
 
     def check_cube_inside(self):
