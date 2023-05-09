@@ -124,6 +124,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                  ungrasp_sparse_reward=False,
                  ungrasp_reward_scale=1.0,
                  gsam_track_cfg={},
+                 real_setup=False,
                  **kwargs):
         if asset_root is None:
             asset_root = self.DEFAULT_ASSET_ROOT
@@ -171,6 +172,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
         self.pmodel = None
 
+        self.real_setup = real_setup
+
         self._check_assets()
 
         ### Grounded-SAM related ###
@@ -188,6 +191,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         if image_obs_mode not in self.SUPPORTED_IMAGE_OBS_MODES:
             raise NotImplementedError("Unsupported image obs mode: {}".format(image_obs_mode))
         self._image_obs_mode = image_obs_mode
+        if self.real_setup:
+            assert self._image_obs_mode == "sideview"
 
         self.max_episode_steps = 50  # FIXME: maybe unnecessary
 
@@ -285,7 +290,10 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
     def _initialize_bowl_actors(self):
         # The object will fall from a certain height
-        if self.fix_init_bowl_pos:
+        if self.real_setup:
+            xy = self._episode_rng.uniform([0.4, -0.4], [0.7, 0.0], [2])
+            # print(xy)
+        elif self.fix_init_bowl_pos:
             xy = self._episode_rng.uniform([-0.1, -0.05], [0, 0.05], [2])
         else:
             xy = self._episode_rng.uniform(-0.1, 0.1, [2])
@@ -332,12 +340,20 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         """cubeA_ori is the angle from bowl to A"""
         self._initialize_bowl_actors()
 
-        if cube_ori is None:
-            # cube_ori = self._episode_rng.uniform(-np.pi/4, np.pi*3/4)
-            cube_ori = self._episode_rng.uniform(0, 2 * np.pi)
-        cube_xy = self.bowl.pose.p[:2] + \
-            [np.cos(cube_ori) * self.dist_cube_bowl,
-             np.sin(cube_ori) * self.dist_cube_bowl]
+        if not self.real_setup:
+            if cube_ori is None:
+                # cube_ori = self._episode_rng.uniform(-np.pi/4, np.pi*3/4)
+                cube_ori = self._episode_rng.uniform(0, 2 * np.pi)
+            cube_xy = self.bowl.pose.p[:2] + \
+                [np.cos(cube_ori) * self.dist_cube_bowl,
+                np.sin(cube_ori) * self.dist_cube_bowl]
+        else:
+            dist_cube_bowl = self._episode_rng.uniform(0.15, 0.3)
+            cube_ori = self._episode_rng.uniform(np.pi, 2 * np.pi)
+            cube_xy = self.bowl.pose.p[:2] + \
+                [np.cos(cube_ori) * dist_cube_bowl,
+                np.sin(cube_ori) * dist_cube_bowl]
+            cube_xy[0] = np.clip(cube_xy[0], 0.3, None)
 
         cube_q = [1, 0, 0, 0]
         if self.obj_init_rot_z:
@@ -347,7 +363,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
         self.cube.set_pose(cube_pose)
 
-    def _check_collision(self, num_steps=1) -> bool:
+    def _check_collision(self, num_steps=5) -> bool:
         for _ in range(num_steps):
             self._scene.step()
 
@@ -357,6 +373,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
     def _initialize_agent(self):
         super()._initialize_agent()
+        if self.real_setup:
+            self.agent.robot.set_pose(Pose([0.0, 0.0, 0.1]))
 
         if self.pmodel is None:
             self.pmodel = self.agent.robot.create_pinocchio_model()
@@ -466,6 +484,10 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                 obs.update(stage=self.sam_current_stage.astype(float))
             else:
                 obs.update(stage=self.current_stage.astype(float))
+        # print("goal", self.goal_pos)
+        # print("bowl", self.bowl.pose)
+        # print("cube", self.cube.pose)
+
         return obs
 
     def check_cube_inside(self, bowl_bbox=None, cube_bbox=None):
@@ -1011,8 +1033,11 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         super()._setup_cameras()
 
         poses = []
-        poses.append(look_at([0.4, 0.4, 0.4], [0.0, 0.0, 0.2]))
-        poses.append(look_at([0.4, -0.4, 0.4], [0.0, 0.0, 0.2]))
+        if not self.real_setup:
+            poses.append(look_at([0.4, 0.4, 0.4], [0.0, 0.0, 0.2]))
+            poses.append(look_at([0.4, -0.4, 0.4], [0.0, 0.0, 0.2]))
+        else:
+            poses.append(look_at([0.4, -1.1, 0.5], [0.4, 0.2, -0.2]))
 
         camera_configs = []
         for i, pose in enumerate(poses):
@@ -1029,6 +1054,18 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                 self._sideview_cameras[uid] = Camera(
                     camera_cfg, self._scene, self._renderer_type
                 )
+
+    def _register_render_cameras(self):
+        if not self.real_setup:
+            pose1 = look_at([0.4, 0.4, 0.4], [0.0, 0.0, 0.2])
+            pose2 = look_at([0.4, -0.4, 0.4], [0.0, 0.0, 0.2])
+            return [
+                CameraConfig(f"render_camera_1", pose1.p, pose1.q, 512, 512, 1, 0.01, 10),
+                CameraConfig(f"render_camera_2", pose2.p, pose2.q, 512, 512, 1, 0.01, 10),
+            ]
+        else:
+            pose = look_at([0.4, -1.1, 0.5], [0.4, 0.2, -0.2])
+            return CameraConfig("render_camera", pose.p, pose.q, 640, 480, 1, 0.01, 10)
 
     def _clear(self):
         super()._clear()
