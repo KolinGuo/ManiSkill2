@@ -958,7 +958,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                 info["sam_eval_dict"], self.sam_current_stage, **kwargs
             )
 
-            info["gt_reward"] = reward
+            info["sam/gt_reward"] = reward
             info["sam_eval_dict"]["reward"] = sam_reward
 
             return sam_reward
@@ -972,7 +972,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             return bool(info["success"])
 
     def step(self, action: Union[None, np.ndarray, Dict]):
-        """When use_grounded_sam, all info keys without sam_ prefix is GT
+        """When use_grounded_sam, all info keys without sam/ prefix is GT
         except for rewards during logging (rewards is sam_reward), gt_reward is GT
         """
         obs, reward, done, info = super().step(action)
@@ -981,17 +981,17 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             # Update info dict
             sam_eval_dict = info.pop("sam_eval_dict")
             for k, v in sam_eval_dict.items():
-                # all sam related info are prefixed with sam_
-                info[f"sam_{k}"] = v
+                # all sam related info are prefixed with sam/
+                info[f"sam/{k}"] = v
 
                 # Add accuracy eval info
                 if isinstance(v, float):
                     if k == "reward":
-                        info[f"sam_{k}_diff"] = v - info["gt_reward"]
+                        info[f"sam/{k}_diff"] = v - info["sam/gt_reward"]
                     else:
-                        info[f"sam_{k}_diff"] = v - info[k]
+                        info[f"sam/{k}_diff"] = v - info[k]
                 else:  # boolean
-                    info[f"sam_{k}_acc"] = (v == info[k])
+                    info[f"sam/{k}_acc"] = (v == info[k])
 
         return obs, reward, done, info
 
