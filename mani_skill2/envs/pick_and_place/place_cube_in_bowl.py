@@ -52,6 +52,11 @@ def get_axis_aligned_bbox_for_cube(cube_actor):
               fix_init_bowl_pos=True, dist_cube_bowl=0.15,
               reward_mode="dense_v2",
               no_robot_static_checks=True, success_needs_ungrasp=True)
+@register_env("PlaceCubeInBowl-v4", max_episode_steps=50, extra_state_obs=True,
+              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+              reward_mode="dense_v2",
+              no_static_checks=True, success_needs_ungrasp=True,
+              check_collision_during_init=False)
 @register_env("PlaceCubeInBowlStaged-v2",
               max_episode_steps=50, extra_state_obs=True,
               fix_init_bowl_pos=True, dist_cube_bowl=0.15,
@@ -83,12 +88,12 @@ def get_axis_aligned_bbox_for_cube(cube_actor):
               reward_mode="sparse_staged_v3", stage_obs=True,
               no_robot_static_checks=True, stage2_check_stage1=False,
               success_needs_ungrasp=True)
-@register_env("PlaceCubeInBowlSAMStaged-v6",
+@register_env("PlaceCubeInBowlStaged-v7",
               max_episode_steps=50, extra_state_obs=True,
               fix_init_bowl_pos=True, dist_cube_bowl=0.15,
-              reward_mode="grounded_sam_sparse_staged_v3", stage_obs=True,
-              no_robot_static_checks=True, stage2_check_stage1=False,
-              success_needs_ungrasp=True)
+              reward_mode="sparse_staged_v3", stage_obs=True,
+              no_static_checks=True, stage2_check_stage1=False,
+              success_needs_ungrasp=True, check_collision_during_init=False)
 class PlaceCubeInBowlEnv(StationaryManipulationEnv):
     DEFAULT_ASSET_ROOT = "{ASSET_DIR}/mani_skill2_ycb"
     DEFAULT_MODEL_JSON = "info_pick_v0.json"
@@ -880,6 +885,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             is_cube_grasped = bool(self.agent.robot.get_qpos()[-2:].sum() < 0.07)
             is_bowl_upwards = True  # NOTE: no checks, assume always True
 
+            assert self.no_static_checks, "There are still static checks"
             sam_eval_dict = dict(
                 tcp_to_cube_dist=tcp_to_cube_dist,
                 is_cube_inside=is_cube_inside,
