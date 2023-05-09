@@ -1,7 +1,7 @@
 import re
 from collections import OrderedDict
 from pathlib import Path
-from typing import Dict, List
+from typing import Union, Dict, List, Tuple
 
 import numpy as np
 import sapien.core as sapien
@@ -83,6 +83,12 @@ def get_axis_aligned_bbox_for_cube(cube_actor):
               reward_mode="sparse_staged_v3", stage_obs=True,
               no_robot_static_checks=True, stage2_check_stage1=False,
               success_needs_ungrasp=True)
+@register_env("PlaceCubeInBowlSAMStaged-v6",
+              max_episode_steps=50, extra_state_obs=True,
+              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+              reward_mode="grounded_sam_sparse_staged_v3", stage_obs=True,
+              no_robot_static_checks=True, stage2_check_stage1=False,
+              success_needs_ungrasp=True)
 class PlaceCubeInBowlEnv(StationaryManipulationEnv):
     DEFAULT_ASSET_ROOT = "{ASSET_DIR}/mani_skill2_ycb"
     DEFAULT_MODEL_JSON = "info_pick_v0.json"
@@ -90,7 +96,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
     SUPPORTED_IMAGE_OBS_MODES = ("hand_base", "sideview")
     SUPPORTED_REWARD_MODES = ("dense", "dense_v2", "sparse", "sparse_staged",
                               "sparse_staged_v2", "sparse_staged_v3",
-                              "sparse_last_grounded_sam")
+                              "grounded_sam_sparse_staged_v3")
 
     def __init__(self, *args,
                  asset_root: str = None,
@@ -112,6 +118,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                  success_needs_ungrasp=False,
                  ungrasp_sparse_reward=False,
                  ungrasp_reward_scale=1.0,
+                 gsam_track_cfg={},
                  **kwargs):
         if asset_root is None:
             asset_root = self.DEFAULT_ASSET_ROOT
@@ -159,9 +166,16 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
         self.pmodel = None
 
-        self.grounded_sam = None
-
         self._check_assets()
+
+        ### Grounded-SAM related ###
+        self.use_grounded_sam = "grounded_sam" in kwargs.get(
+            "reward_mode", self.SUPPORTED_REWARD_MODES[0]
+        )
+        if self.use_grounded_sam:
+            self._initialize_grounded_sam(**gsam_track_cfg)
+            self.recent_sam_obs = None
+            self.sam_current_stage = np.zeros(self.num_stages).astype(bool)
 
         # Image obs mode
         if image_obs_mode is None:
@@ -207,6 +221,10 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
               model_id=None, model_scale=None):
         # reset stage obs
         self.current_stage = np.zeros(self.num_stages).astype(bool)
+        if self.use_grounded_sam:
+            self.recent_sam_obs = None
+            self.sam_current_stage = np.zeros(self.num_stages).astype(bool)
+
         self._prev_actor_poses = {}
         self.set_episode_rng(seed)
         _reconfigure = self._set_model(model_id, model_scale)
@@ -410,9 +428,6 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
         self.goal_pos = bowl_pos + [0, 0, 0.05]
 
-        if self._reward_mode == "sparse_last_grounded_sam":
-            self._initialize_grounded_sam()
-
     def _get_obs_extra(self) -> OrderedDict:
         # Update goal_pos in case the bowl moves
         self.goal_pos = self.bowl.pose.p + [0, 0, 0.05]
@@ -440,16 +455,22 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                         get_axis_aligned_bbox_for_actor(self.bowl)
                     ),
                 )
-            if self.stage_obs:
-                obs.update(
-                    stage=self.current_stage.astype(float)
-                )
+        if self.stage_obs:
+            # NOTE: this comes one-step later than evaluate/reward
+            if self.use_grounded_sam:
+                obs.update(stage=self.sam_current_stage.astype(float))
+            else:
+                obs.update(stage=self.current_stage.astype(float))
         return obs
 
-    def check_cube_inside(self):
-        # Check if the cube is placed inside the bowl
-        bowl_mins, bowl_maxs = get_axis_aligned_bbox_for_actor(self.bowl)
-        cube_mins, cube_maxs = get_axis_aligned_bbox_for_cube(self.cube)
+    def check_cube_inside(self, bowl_bbox=None, cube_bbox=None):
+        """Check if the cube is placed inside the bowl"""
+        if bowl_bbox is not None and cube_bbox is not None:
+            bowl_mins, bowl_maxs = bowl_bbox
+            cube_mins, cube_maxs = cube_bbox
+        else:
+            bowl_mins, bowl_maxs = get_axis_aligned_bbox_for_actor(self.bowl)
+            cube_mins, cube_maxs = get_axis_aligned_bbox_for_cube(self.cube)
 
         # For xy axes, cube need to be inside bowl
         # For z axis, cube_z_max can be greater than bowl_z_max
@@ -531,18 +552,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         if self.success_needs_ungrasp:
             eval_dict["success"] = eval_dict["success"] and (not is_cube_grasped)
 
-        if self._reward_mode in ["sparse_staged", "sparse_staged_v2", "sparse_staged_v3"]:
-            tcp_to_cube_dist = eval_dict["tcp_to_cube_dist"]
-            if tcp_to_cube_dist < self.tcp_to_cube_dist_thres:
-                self.current_stage[0] = True
-            if (self.stage2_check_stage1 and
-                    self.current_stage[0] and is_cube_inside):
-                self.current_stage[1] = True
-            elif (not self.stage2_check_stage1 and
-                    is_cube_inside and is_bowl_upwards):
-                self.current_stage[1] = True
-            if eval_dict["success"]:
-                self.current_stage[-1] = True
+        if "sparse_staged" in self._reward_mode:
+            self.current_stage = self.get_current_stage(eval_dict)
 
             eval_dict.update(dict(
                 in_stage1=self.current_stage[0],
@@ -653,18 +664,23 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
         return reward
 
-    def compute_staged_reward_v3(self, info, **kwargs) -> float:
+    def compute_staged_reward_v3(
+        self, info, current_stage=None, **kwargs
+    ) -> float:
         reward = 0.0
 
         if info["success"]:
             reward = (self.num_stages - 1) * 5.0
             return reward
 
+        if current_stage is None:
+            current_stage = self.current_stage
+
         tcp_to_cube_dist = info["tcp_to_cube_dist"]
-        if self.current_stage[0]:  # tcp close to cube
+        if current_stage[0]:  # tcp close to cube
             reward = 1.0
 
-        if self.current_stage[1]:  # is_cube_inside and is_bowl_upwards
+        if current_stage[1]:  # is_cube_inside and is_bowl_upwards
             reward = 5.0
 
             # ungrasp reward
@@ -691,13 +707,204 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             self.bowl.name: self.bowl.get_pose(),
         }
 
-    # Grounded-SAM related
+    ### Grounded-SAM related ###
+    def _initialize_grounded_sam(
+        self, aot_max_len_long_term=2,
+        predict_gap=10,
+        prompt_with_robot_arm=True, device="cuda",
+        voxel_downsample_size=0.005, nb_neighbors=20, std_ratio=0.005,
+        **kwargs
+    ):
+        """
+        :param predict_gap: run grounded_sam per predict_gap frames
+                            use mask tracking for the rest
+        """
+        from grounded_sam_track import GroundedSAMTrack
+
+        self.env_object_texts = ["green cube", "red bowl"]
+
+        self.grounded_sam_track = GroundedSAMTrack(
+            aot_max_len_long_term=aot_max_len_long_term,
+            predict_gap=predict_gap,
+            prompt_with_robot_arm=prompt_with_robot_arm,
+            device=device,
+            **kwargs
+        )
+
+        # For _process_pts
+        self.voxel_downsample_size = voxel_downsample_size
+        self.nb_neighbors = nb_neighbors
+        self.std_ratio = std_ratio
+
+    def get_current_stage(self, info, current_stage=None):
+        if current_stage is None:
+            current_stage = self.current_stage
+
+        tcp_to_cube_dist = info["tcp_to_cube_dist"]
+        is_cube_inside = info["is_cube_inside"]
+        is_bowl_upwards = info["is_bowl_upwards"]
+        success = info["success"]
+
+        if tcp_to_cube_dist < self.tcp_to_cube_dist_thres:
+            current_stage[0] = True
+        if (self.stage2_check_stage1 and
+                current_stage[0] and is_cube_inside):
+            current_stage[1] = True
+        elif (not self.stage2_check_stage1 and
+                is_cube_inside and is_bowl_upwards):
+            current_stage[1] = True
+        if success:
+            current_stage[-1] = True
+        return current_stage
+
+    @staticmethod
+    def _process_pts(
+        pts_lst: Union[np.ndarray, List[np.ndarray]],
+        voxel_downsample_size, nb_neighbors, std_ratio
+    ) -> Union[np.ndarray, List[np.ndarray]]:
+        from pyrl.utils.lib3d import np2pcd
+
+        if isinstance(pts_lst, np.ndarray):
+            pts_lst = [pts_lst]
+
+        ret_pts_lst = []
+        for pts in pts_lst:
+            pcd = np2pcd(pts)
+            if voxel_downsample_size is not None:
+                pcd = pcd.voxel_down_sample(voxel_size=voxel_downsample_size)
+            pcd_filter, inlier_inds = pcd.remove_statistical_outlier(
+                nb_neighbors=nb_neighbors, std_ratio=std_ratio
+            )
+            ret_pts_lst.append(np.asarray(pcd_filter.points))
+
+        if len(ret_pts_lst) == 1:
+            return ret_pts_lst[0]
+
+        return ret_pts_lst
+
+    def get_obs(self) -> OrderedDict:
+        """Store following observation to self.recent_sam_obs if using grounded_sam
+        :return sam_rgb_images: a [n_cams, 512, 512, 3] np.uint8 np.ndarray
+        :return sam_xyz_images: a [n_cams, 512, 512, 3] np.float32 np.ndarray
+                                per-pixel xyz coordinates in world frame
+        :return sam_xyz_masks: a [n_cams, 512, 512] np.bool np.ndarray
+                               per-pixel valid mask
+                               (in front of the far plane of camera frustum)
+        :return pred_masks: predicted mask for sam_rgb_images,
+                            a [n_cams, 512, 512] np.uint8 np.ndarray
+                            mask value is index+1 in object_texts
+        :return pred_phrases: a list of n_cams [n_boxes] list of pred_phrases
+        :return boxes_filt: a list of n_cams[n_boxes, 4] np.ndarray
+        :return object_pcds: {object_text: object_pcd}
+                             object_pcd is a [n_pts, 3] np.ndarray
+        :return object_filt_pcds: filtered points, {object_text: object_pcd}
+                                  object_pcd is a [n_pts, 3] np.ndarray
+        """
+        obs = super().get_obs()
+
+        # Store grounded_sam image observation
+        if self.use_grounded_sam:
+            # Render observation for grounded_sam_track
+            kwargs = {}
+            # Already rendered grounded_sam image views
+            if (self._obs_mode == "image"
+                    and self._image_obs_mode != "hand_base"):
+                kwargs["camera_params_dict"] = obs["camera_param"]
+                kwargs["camera_captures_dict"] = obs["image"]
+
+            rgb_images, xyz_images, xyz_masks = self._render_rgb_pcd_images(
+                **kwargs
+            )
+            n_cams = len(rgb_images)
+            self.grounded_sam_track.ensure_num_segtracker(n_cams)
+
+            # Images are of shape [n_cams, H, W, 3]
+            # Masks are of shape [n_cams, H, W]
+            rgb_images = np.stack(rgb_images, axis=0)
+            xyz_images = np.stack(xyz_images, axis=0)
+            xyz_masks = np.stack(xyz_masks, axis=0)
+            H, W = rgb_images.shape[1:-1]
+
+            sam_obs = OrderedDict()
+            sam_obs["sam_rgb_images"] = rgb_images
+            sam_obs["sam_xyz_images"] = xyz_images
+            sam_obs["sam_xyz_masks"] = xyz_masks
+
+            # Run grounded_sam_track
+            ret_dict = self.grounded_sam_track.predict_and_track_batch(
+                rgb_images,
+                [self._elapsed_steps] * n_cams,
+                self.env_object_texts,
+                xyz_masks,
+                np.arange(n_cams)
+            )
+            ret_dict["pred_masks"] = np.stack(ret_dict["pred_masks"], axis=0)
+            sam_obs.update(ret_dict)
+            pred_masks = ret_dict["pred_masks"]  # [n_cams, H, W]
+
+            # Extract pcd from xyz_images
+            object_pcds = {}
+            object_filt_pcds = {}
+            for i, object_text in enumerate(self.env_object_texts):
+                object_pcd = xyz_images[pred_masks == i+1]
+                object_pcds[object_text] = object_pcd
+                object_filt_pcds[object_text] = self._process_pts(
+                    object_pcd, self.voxel_downsample_size,
+                    self.nb_neighbors, self.std_ratio
+                )
+            sam_obs["object_pcds"] = object_pcds
+            sam_obs["object_filt_pcds"] = object_filt_pcds
+
+            self.recent_sam_obs = sam_obs
+
+        return obs
+
+    def get_info(self, **kwargs) -> dict:
+        info = super().get_info(**kwargs)
+
+        if self.use_grounded_sam:
+            cube_pts = self.recent_sam_obs["object_filt_pcds"][self.env_object_texts[0]]
+            bowl_pts = self.recent_sam_obs["object_filt_pcds"][self.env_object_texts[1]]
+
+            # Extract cube position
+            cube_pos = np.mean(cube_pts, axis=0)
+            # Extract bbox from object_pts
+            bowl_mins, bowl_maxs = bowl_pts.min(0), bowl_pts.max(0)
+            cube_mins, cube_maxs = cube_pts.min(0), cube_pts.max(0)
+
+            tcp_to_cube_dist = np.linalg.norm(cube_pos - self.tcp.pose.p)
+            is_cube_inside = self.check_cube_inside(
+                bowl_bbox=(bowl_mins, bowl_maxs),
+                cube_bbox=(cube_mins, cube_maxs)
+            )
+            is_cube_grasped = bool(self.agent.robot.get_qpos()[-2:].sum() < 0.07)
+            is_bowl_upwards = True  # NOTE: no checks, assume always True
+
+            sam_eval_dict = dict(
+                tcp_to_cube_dist=tcp_to_cube_dist,
+                is_cube_inside=is_cube_inside,
+                is_cube_grasped=is_cube_grasped,
+                is_bowl_upwards=is_bowl_upwards,
+                success=(is_cube_inside and is_bowl_upwards
+                         and (not is_cube_grasped))
+            )
+
+            if "sparse_staged" in self._reward_mode:
+                self.sam_current_stage = self.get_current_stage(
+                    sam_eval_dict, self.sam_current_stage
+                )
+                sam_eval_dict.update(
+                    in_stage1=self.sam_current_stage[0],
+                    in_stage2=self.sam_current_stage[1],
+                )
+
+            info.update(sam_eval_dict=sam_eval_dict)
+
+        return info
+
     def get_reward(self, **kwargs):
-        if self._reward_mode == "sparse_last_grounded_sam":
-            if self._elapsed_steps >= self.max_episode_steps:  # Last step
-                return self.compute_sparse_grounded_sam_reward(**kwargs)
-            else:
-                return 0.0
+        if self.use_grounded_sam:
+            return self.compute_sparse_grounded_sam_reward(**kwargs)
         elif self._reward_mode == "sparse_staged":
             return self.compute_staged_reward(**kwargs)
         elif self._reward_mode == "sparse_staged_v2":
@@ -709,11 +916,62 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         else:
             return super().get_reward(**kwargs)
 
+    def compute_sparse_grounded_sam_reward(self, info, **kwargs):
+        if "sparse_staged_v3" in self._reward_mode:
+            reward = self.compute_staged_reward_v3(info, **kwargs)
+
+            sam_reward = self.compute_staged_reward_v3(
+                info["sam_eval_dict"], self.sam_current_stage, **kwargs
+            )
+
+            info["gt_reward"] = reward
+            info["sam_eval_dict"]["reward"] = sam_reward
+
+            return sam_reward
+        else:
+            raise NotImplementedError(self._reward_mode)
+
+    def get_done(self, info: dict, **kwargs):
+        if self.use_grounded_sam:
+            return bool(info["sam_eval_dict"]["success"])
+        else:
+            return bool(info["success"])
+
+    def step(self, action: Union[None, np.ndarray, Dict]):
+        """When use_grounded_sam, all info keys without sam_ prefix is GT
+        except for rewards during logging (rewards is sam_reward), gt_reward is GT
+        """
+        obs, reward, done, info = super().step(action)
+
+        if self.use_grounded_sam:
+            # Update info dict
+            sam_eval_dict = info.pop("sam_eval_dict")
+            for k, v in sam_eval_dict.items():
+                # all sam related info are prefixed with sam_
+                info[f"sam_{k}"] = v
+
+                # Add accuracy eval info
+                if isinstance(v, float):
+                    if k == "reward":
+                        info[f"sam_{k}_diff"] = v - info["gt_reward"]
+                    else:
+                        info[f"sam_{k}_diff"] = v - info[k]
+                else:  # boolean
+                    info[f"sam_{k}_acc"] = (v == info[k])
+
+        return obs, reward, done, info
+
     # Add multi-view cameras
-    def take_picture_sideview(self):
-        """Take pictures from all cameras (non-blocking)."""
-        for cam in self._sideview_cameras.values():
-            cam.take_picture()
+    def update_render_and_take_picture_sideview(self):
+        """Update render and take pictures from all cameras (non-blocking)."""
+        if self._renderer_type == "client":
+            # NOTE: not compatible with StereoDepthCamera
+            cameras = [x.camera for x in self._sideview_cameras.values()]
+            self._scene._update_render_and_take_pictures(cameras)
+        else:
+            self.update_render()
+            for cam in self._sideview_cameras.values():
+                cam.take_picture()
 
     def get_images_sideview(self) -> Dict[str, Dict[str, np.ndarray]]:
         """Get (raw) images from all cameras (blocking)."""
@@ -735,13 +993,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
         assert self._image_obs_mode == "sideview"
 
-        if self._renderer_type == "client":
-            # NOTE: not compatible with StereoDepthCamera
-            cameras = [x.camera for x in self._sideview_cameras.values()]
-            self._scene._update_render_and_take_pictures(cameras)
-        else:
-            self.update_render()
-            self.take_picture_sideview()
+        self.update_render_and_take_picture_sideview()
         return OrderedDict(
             agent=self._get_obs_agent(),
             extra=self._get_obs_extra(),
@@ -776,7 +1028,9 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         super()._clear()
         self._sideview_cameras = OrderedDict()
 
-    def render_rgb_pcd_images(self):
+    def _render_rgb_pcd_images(
+        self, camera_params_dict=None, camera_captures_dict=None
+    ) -> Tuple[List[np.ndarray], List[np.ndarray], List[np.ndarray]]:
         """
         :return rgb_images: a list of [512, 512, 3] np.uint8 np.ndarray
         :return xyz_images: a list of [512, 512, 3] np.float32 np.ndarray
@@ -785,13 +1039,17 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                            per-pixel valid mask
                            (in front of the far plane of camera frustum)
         """
-        self.update_render()
+        if camera_params_dict is None or camera_captures_dict is None:
+            self.update_render_and_take_picture_sideview()
+            camera_params_dict = self.get_camera_params_sideview()
+            camera_captures_dict = self.get_images_sideview()
 
         rgb_images = []
         xyz_images = []  # xyz_images in world coordinates
-        xyz_masks = []   # xyz_mask for valid points
-        for camera in self._sideview_cameras.values():
-            camera_captures = camera.get_images(take_picture=True)
+        xyz_masks = []  # xyz_mask for valid points
+        for cam_name in camera_captures_dict.keys():
+            camera_params = camera_params_dict[cam_name]
+            camera_captures = camera_captures_dict[cam_name]
 
             rgba = camera_captures["Color"]
             rgb_images.append(
@@ -803,117 +1061,44 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             xyz_masks.append(pos_depth[..., 3] < 1)
 
             image_shape = xyz_image.shape[:2]
-            T = camera.camera.get_model_matrix()
+            T = camera_params["cam2world_gl"]
             xyz_image = xyz_image.reshape(-1, 3) @ T[:3, :3].T + T[:3, 3]
             xyz_images.append(xyz_image.reshape(*image_shape, 3))
 
         return rgb_images, xyz_images, xyz_masks
 
-    def _initialize_grounded_sam(self):
-        if self.grounded_sam is None:
-            from grounded_sam import GroundedSAM
-            self.grounded_sam = GroundedSAM(
-                grounding_dino_model_variant='swin-b',
-                sam_model_variant='vit_h',
-                device="cuda:0"
-            )
+    # FIXME: remove
+    # def _initialize_grounded_sam(self):
+    #     """Initialize properties used by grounded_sam"""
+    #     self.env_object_texts = ["green cube", "red bowl"]
 
-            import os
-            self.grounded_sam_output_dir = Path(os.environ["log_dir"]) \
-                / 'grounded_sam'
-
-    def compute_sparse_grounded_sam_reward(self, info, **kwargs) -> float:
-        # Render RGB images and pointclouds
-        rgb_images, xyz_images, xyz_masks = self.render_rgb_pcd_images()
-
-        self.objects_text = ["green cube", "red bowl"]
-        self.prompt_with_robot_arm = True
-
-        def find_most_confident_label(pred_phrases, label):
-            pred_label_idx = None
-            best_logit = 0.0
-            for i, pred_phrase in enumerate(pred_phrases):
-                pred_label, pred_logit = re.split('\(|\)', pred_phrase)[:2]
-                if label.lower() in pred_label and float(pred_logit) > best_logit:
-                    pred_label_idx = i
-                    best_logit = float(pred_logit)
-            return pred_label_idx
-
-        def save_pred_result(correct_pred: bool, rgb_images, text_prompt,
-                             boxes_filt_batch: List[np.ndarray],
-                             pred_phrases_batch: List[List[str]],
-                             pred_masks_batch: List[np.ndarray]):
-            for img_i, rgb_image in enumerate(rgb_images):
-                boxes_filt = boxes_filt_batch[img_i]
-                pred_phrases = pred_phrases_batch[img_i]
-                pred_masks = pred_masks_batch[img_i]
-                # Save pred_mask results
-                import uuid
-                self.grounded_sam.save_pred_result(
-                    self.grounded_sam_output_dir / (f'{correct_pred}_{self._elapsed_steps}_'+str(uuid.uuid4())),
-                    rgb_image, text_prompt,
-                    boxes_filt, pred_phrases, pred_masks
-                )
-
-        text_prompt = '. '.join(self.objects_text) + '.'
-        if self.prompt_with_robot_arm:
-            text_prompt += ' robot arm.'
-
-        boxes_filt_batch, pred_phrases_batch, pred_masks_batch, _ = self.grounded_sam.predict(
-            np.stack(rgb_images), [text_prompt]*len(rgb_images)
-        )
-
-        # Convert torch.Tensor to np.ndarray
-        boxes_filt_batch = [b.numpy() for b in boxes_filt_batch]
-        pred_masks_batch = [m.cpu().numpy() for m in pred_masks_batch]
-
-        object_pcds = {}  # {object_text: object_pcd}
-        for img_i, rgb_image in enumerate(rgb_images):
-            xyz_image = xyz_images[img_i]
-            xyz_mask = xyz_masks[img_i]
-            boxes_filt = boxes_filt_batch[img_i]
-            pred_phrases = pred_phrases_batch[img_i]
-            pred_masks = pred_masks_batch[img_i]
-
-            for object_text in self.objects_text:
-                pred_label_idx = find_most_confident_label(pred_phrases, object_text)
-                if pred_label_idx is None:  # object cannot be found
-                    save_pred_result(
-                        info["success"] == False, rgb_images,
-                        text_prompt + f'(env {info["success"]}, pred {False})',
-                        boxes_filt_batch, pred_phrases_batch, pred_masks_batch
-                    )
-                    return 0.0
-                pred_mask = pred_masks[pred_label_idx, 0]  # [H, W]
-
-                object_pcds[object_text] = xyz_image[xyz_mask & pred_mask]
-
-        # Extract bbox from object_pcds
-        bowl_mins = object_pcds["red bowl"].min(0)
-        bowl_maxs = object_pcds["red bowl"].max(0)
-        cube_mins = object_pcds["green cube"].min(0)
-        cube_maxs = object_pcds["green cube"].max(0)
-
-        # For xy axes, cube need to be inside bowl
-        # For z axis, cube_z_max can be greater than bowl_z_max
-        #   by its half_length
-        if bowl_mins[0] <= cube_mins[0] and cube_maxs[0] <= bowl_maxs[0] and \
-           bowl_mins[1] <= cube_mins[1] and cube_maxs[1] <= bowl_maxs[1] and \
-           bowl_mins[2] <= cube_mins[2] and \
-           cube_maxs[2] <= bowl_maxs[2] + self.cube_half_size.max():
-            save_pred_result(
-                info["success"] == True, rgb_images,
-                text_prompt + f'(env {info["success"]}, pred {True})',
-                boxes_filt_batch, pred_phrases_batch, pred_masks_batch
-            )
-            return 1.0
-
-        save_pred_result(
-            info["success"] == False, rgb_images,
-            text_prompt + f'(env {info["success"]}, pred {False})',
-            boxes_filt_batch, pred_phrases_batch, pred_masks_batch
-        )
-        return 0.0
+    #     # if self.grounded_sam is None:
+    #     #     import os
+    #     #     self.grounded_sam_output_dir = Path(os.environ["log_dir"]) \
+    #     #         / 'grounded_sam'
+    # def compute_sparse_grounded_sam_reward(self, info, **kwargs) -> float:
+    #
+    #     def save_pred_result(correct_pred: bool, rgb_images, text_prompt,
+    #                          boxes_filt_batch: List[np.ndarray],
+    #                          pred_phrases_batch: List[List[str]],
+    #                          pred_masks_batch: List[np.ndarray]):
+    #         for img_i, rgb_image in enumerate(rgb_images):
+    #             boxes_filt = boxes_filt_batch[img_i]
+    #             pred_phrases = pred_phrases_batch[img_i]
+    #             pred_masks = pred_masks_batch[img_i]
+    #             # Save pred_mask results
+    #             import uuid
+    #             self.grounded_sam.save_pred_result(
+    #                 self.grounded_sam_output_dir / (f'{correct_pred}_{self._elapsed_steps}_'+str(uuid.uuid4())),
+    #                 rgb_image, text_prompt,
+    #                 boxes_filt, pred_phrases, pred_masks
+    #             )
+    #     save_pred_result(
+    #         info["success"] == False, rgb_images,
+    #         text_prompt + f'(env {info["success"]}, pred {False})',
+    #         boxes_filt_batch, pred_phrases_batch, pred_masks_batch
+    #     )
+    #     return 0.0
 
 
 @register_env("PlaceCubeInBowlEasy-v0", max_episode_steps=20, extra_state_obs=True,
