@@ -94,6 +94,12 @@ def get_axis_aligned_bbox_for_cube(cube_actor):
               reward_mode="sparse_staged_v3", stage_obs=True,
               no_static_checks=True, stage2_check_stage1=False,
               success_needs_ungrasp=True, check_collision_during_init=False)
+@register_env("PlaceCubeInBowlSAMStaged-v7",
+              max_episode_steps=50, extra_state_obs=True,
+              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+              reward_mode="grounded_sam_sparse_staged_v3", stage_obs=True,
+              no_static_checks=True, stage2_check_stage1=False,
+              success_needs_ungrasp=True, check_collision_during_init=False)
 class PlaceCubeInBowlEnv(StationaryManipulationEnv):
     DEFAULT_ASSET_ROOT = "{ASSET_DIR}/mani_skill2_ycb"
     DEFAULT_MODEL_JSON = "info_pick_v0.json"
