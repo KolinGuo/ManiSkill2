@@ -57,6 +57,12 @@ def get_axis_aligned_bbox_for_cube(cube_actor):
               reward_mode="dense_v2",
               no_static_checks=True, success_needs_ungrasp=True,
               check_collision_during_init=False)
+@register_env("PlaceCubeInBowl-v5", max_episode_steps=50, extra_state_obs=True,
+              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+              reward_mode="dense_v2",
+              no_static_checks=True, success_needs_ungrasp=True,
+              check_collision_during_init=False,
+              robot_base_at_world_frame=True)
 @register_env("PlaceCubeInBowlStaged-v2",
               max_episode_steps=50, extra_state_obs=True,
               fix_init_bowl_pos=True, dist_cube_bowl=0.15,
@@ -131,6 +137,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                  ungrasp_reward_scale=1.0,
                  gsam_track_cfg={},
                  real_setup=False,
+                 robot_base_at_world_frame=False,
+                 remove_obs_extra=[],
                  **kwargs):
         if asset_root is None:
             asset_root = self.DEFAULT_ASSET_ROOT
@@ -179,6 +187,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self.pmodel = None
 
         self.real_setup = real_setup
+        self.robot_base_at_world_frame = robot_base_at_world_frame
+        self.remove_obs_extra = remove_obs_extra
 
         self._check_assets()
 
@@ -453,6 +463,16 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             self._initialize_agent()
 
     def _initialize_task(self, max_trials=100, verbose=False):
+        # Set robot base frame at world frame
+        if self.robot_base_at_world_frame:
+            robot_pose = self.agent.robot.get_pose()
+            delta_pos = robot_pose.p
+            self.agent.robot.set_pose(Pose(p=[0, 0, 0], q=robot_pose.q))
+
+            for obj in [self.bowl, self.cube]:
+                obj_pose = obj.get_pose()
+                obj.set_pose(Pose(p=obj_pose.p - delta_pos, q=obj_pose.q))
+
         bowl_pos = self.bowl.pose.p
 
         self.goal_pos = bowl_pos + [0, 0, 0.05]
@@ -490,6 +510,10 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                 obs.update(stage=self.sam_current_stage.astype(float))
             else:
                 obs.update(stage=self.current_stage.astype(float))
+
+        for obs_key in self.remove_obs_extra:
+            obs.pop(obs_key, None)
+
         # print("goal", self.goal_pos)
         # print("bowl", self.bowl.pose)
         # print("cube", self.cube.pose)
