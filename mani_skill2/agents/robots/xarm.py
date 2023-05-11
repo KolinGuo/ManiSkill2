@@ -34,8 +34,8 @@ class XArm(BaseAgent):
         rimpulse = get_pairwise_contact_impulse(contacts, self.finger2_link, actor)
 
         # direction to open the gripper
-        ldirection = self.finger1_link.pose.to_transformation_matrix()[:3, 2]
-        rdirection = self.finger2_link.pose.to_transformation_matrix()[:3, 2]
+        ldirection = self.finger1_link.pose.to_transformation_matrix()[:3, 1]
+        rdirection = -self.finger2_link.pose.to_transformation_matrix()[:3, 1]
 
         # angle between impulse and open direction
         langle = compute_angle_between(ldirection, limpulse)
