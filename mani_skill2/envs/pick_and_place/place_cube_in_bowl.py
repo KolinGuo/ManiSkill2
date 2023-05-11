@@ -370,6 +370,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                 [np.cos(cube_ori) * self.dist_cube_bowl,
                 np.sin(cube_ori) * self.dist_cube_bowl]
         else:
+            # FIXME: check dist_cube_bowl
             dist_cube_bowl = self._episode_rng.uniform(0.15, 0.3)
             cube_ori = self._episode_rng.uniform(np.pi, 2 * np.pi)
             cube_xy = self.bowl.pose.p[:2] + \
@@ -468,16 +469,45 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             self._initialize_actors()
             self._initialize_agent()
 
-    def _initialize_task(self, max_trials=100, verbose=False):
+    # Shift robot base frame to world frame
+    def _configure_agent(self):
+        super()._configure_agent()
+
         # Set robot base frame at world frame
         if self.robot_base_at_world_frame:
-            robot_pose = self.agent.robot.get_pose()
-            delta_pos = robot_pose.p
-            self.agent.robot.set_pose(Pose(p=[0, 0, 0], q=robot_pose.q))
+            if self.robot_uid == "panda":
+                self.world_frame_delta_pos = np.array([-0.615, 0, 0], dtype=np.float32)
+            else:
+                raise NotImplementedError(self.robot_uid)
 
-            for obj in [self.bowl, self.cube]:
+    def _configure_cameras(self):
+        super()._configure_cameras()
+
+        # Set robot base frame at world frame, change camera pose accordingly
+        if self.robot_base_at_world_frame:
+            for uid, camera_cfg in self._camera_cfgs.items():
+                if uid in self._agent_camera_cfgs:
+                    continue  # do not update cameras attached to agent
+                else:
+                    camera_cfg.p -= self.world_frame_delta_pos
+
+    def _configure_render_cameras(self):
+        super()._configure_render_cameras()
+
+        # Set robot base frame at world frame, change camera pose accordingly
+        if self.robot_base_at_world_frame:
+            for uid, camera_cfg in self._render_camera_cfgs.items():
+                camera_cfg.p -= self.world_frame_delta_pos
+
+    def _initialize_task(self, max_trials=100, verbose=False):
+        super()._initialize_task()
+
+        # Shift robot and objects
+        if self.robot_base_at_world_frame:
+            for obj in [self.agent.robot, self.bowl, self.cube]:
                 obj_pose = obj.get_pose()
-                obj.set_pose(Pose(p=obj_pose.p - delta_pos, q=obj_pose.q))
+                obj.set_pose(Pose(p=obj_pose.p - self.world_frame_delta_pos,
+                                  q=obj_pose.q))
 
         bowl_pos = self.bowl.pose.p
 
@@ -1030,24 +1060,24 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         """Update render and take pictures from all cameras (non-blocking)."""
         if self._renderer_type == "client":
             # NOTE: not compatible with StereoDepthCamera
-            cameras = [x.camera for x in self._sideview_cameras.values()]
+            cameras = [x.camera for x in self._render_cameras.values()]
             self._scene._update_render_and_take_pictures(cameras)
         else:
             self.update_render()
-            for cam in self._sideview_cameras.values():
+            for cam in self._render_cameras.values():
                 cam.take_picture()
 
     def get_images_sideview(self) -> Dict[str, Dict[str, np.ndarray]]:
         """Get (raw) images from all cameras (blocking)."""
         images = OrderedDict()
-        for name, cam in self._sideview_cameras.items():
+        for name, cam in self._render_cameras.items():
             images[name] = cam.get_images()
         return images
 
     def get_camera_params_sideview(self) -> Dict[str, Dict[str, np.ndarray]]:
         """Get camera parameters from all cameras."""
         params = OrderedDict()
-        for name, cam in self._sideview_cameras.items():
+        for name, cam in self._render_cameras.items():
             params[name] = cam.get_params()
         return params
 
@@ -1068,44 +1098,56 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
     def _setup_cameras(self):
         super()._setup_cameras()
 
-        poses = []
-        if not self.real_setup:
-            poses.append(look_at([0.4, 0.4, 0.4], [0.0, 0.0, 0.2]))
-            poses.append(look_at([0.4, -0.4, 0.4], [0.0, 0.0, 0.2]))
-        else:
-            poses.append(look_at([0.4, -1.1, 0.5], [0.4, 0.2, -0.2]))
+        # poses = []
+        # if not self.real_setup:
+        #     poses.append(look_at([0.4, 0.4, 0.4], [0.0, 0.0, 0.2]))
+        #     poses.append(look_at([0.4, -0.4, 0.4], [0.0, 0.0, 0.2]))
+        # else:
+        #     poses.append(look_at([0.4, -1.1, 0.5], [0.4, 0.2, -0.2]))
 
-        camera_configs = []
-        for i, pose in enumerate(poses):
-            camera_cfg = CameraConfig(f"sideview_camera_{i}",
-                                      pose.p, pose.q, 512, 512, 1, 0.01, 10)
-            camera_cfg.texture_names += ("Segmentation",)
-            camera_configs.append(camera_cfg)
+        # camera_configs = []
+        # for i, pose in enumerate(poses):
+        #     camera_cfg = CameraConfig(f"sideview_camera_{i}",
+        #                               pose.p, pose.q, 512, 512, 1, 0.01, 10)
+        #     camera_cfg.texture_names += ("Segmentation",)
+        #     camera_configs.append(camera_cfg)
 
-        self._sideview_camera_cfgs = parse_camera_cfgs(camera_configs)
+        # self._sideview_camera_cfgs = parse_camera_cfgs(camera_configs)
 
-        self._sideview_cameras = OrderedDict()
-        if self._renderer_type != "client":
-            for uid, camera_cfg in self._sideview_camera_cfgs.items():
-                self._sideview_cameras[uid] = Camera(
-                    camera_cfg, self._scene, self._renderer_type
-                )
+        # self._sideview_cameras = OrderedDict()
+        # if self._renderer_type != "client":
+        #     for uid, camera_cfg in self._sideview_camera_cfgs.items():
+        #         self._sideview_cameras[uid] = Camera(
+        #             camera_cfg, self._scene, self._renderer_type
+        #         )
 
     def _register_render_cameras(self):
+        camera_configs = []
         if not self.real_setup:
             pose1 = look_at([0.4, 0.4, 0.4], [0.0, 0.0, 0.2])
             pose2 = look_at([0.4, -0.4, 0.4], [0.0, 0.0, 0.2])
-            return [
-                CameraConfig(f"render_camera_1", pose1.p, pose1.q, 512, 512, 1, 0.01, 10),
-                CameraConfig(f"render_camera_2", pose2.p, pose2.q, 512, 512, 1, 0.01, 10),
-            ]
+            camera_configs.extend([
+                CameraConfig(f"render_camera_1",
+                             pose1.p, pose1.q, 512, 512, 1, 0.01, 10),
+                CameraConfig(f"render_camera_2",
+                             pose2.p, pose2.q, 512, 512, 1, 0.01, 10),
+            ])
         else:
             pose = look_at([0.4, -1.1, 0.5], [0.4, 0.2, -0.2])
-            return CameraConfig("render_camera", pose.p, pose.q, 640, 480, 1, 0.01, 10)
+            camera_configs.append(
+                CameraConfig("render_camera",
+                             pose.p, pose.q, 640, 480, 1, 0.01, 10)
+            )
+
+        # Add Segmentation
+        for camera_cfg in camera_configs:
+            camera_cfg.texture_names += ("Segmentation",)
+
+        return camera_configs
 
     def _clear(self):
         super()._clear()
-        self._sideview_cameras = OrderedDict()
+        # self._sideview_cameras = OrderedDict()
 
     def _render_rgb_pcd_images(
         self, camera_params_dict=None, camera_captures_dict=None
