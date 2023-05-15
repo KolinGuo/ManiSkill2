@@ -313,7 +313,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
     def _initialize_bowl_actors(self):
         # The object will fall from a certain height
         if self.real_setup:
-            xy = self._episode_rng.uniform([0.4, -0.4], [0.7, 0.0], [2])
+            xy = self._episode_rng.uniform([0.4, -0.3], [0.55, 0.0], [2])
             # print(xy)
         elif self.fix_init_bowl_pos:
             xy = self._episode_rng.uniform([-0.1, -0.05], [0, 0.05], [2])
@@ -339,6 +339,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         # Move the robot far away to avoid collision
         # The robot should be initialized later
         self.agent.robot.set_pose(Pose([-10, 0, 0]))
+        self.cube.set_pose(Pose([10, 0, 0]))
 
         # Lock rotation around x and y
         self.bowl.lock_motion(0, 0, 0, 1, 1, 0)
@@ -370,13 +371,11 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                 [np.cos(cube_ori) * self.dist_cube_bowl,
                 np.sin(cube_ori) * self.dist_cube_bowl]
         else:
-            # FIXME: check dist_cube_bowl
-            dist_cube_bowl = self._episode_rng.uniform(0.15, 0.3)
+            dist_cube_bowl = self._episode_rng.uniform(0.15, 0.25)
             cube_ori = self._episode_rng.uniform(np.pi, 2 * np.pi)
             cube_xy = self.bowl.pose.p[:2] + \
                 [np.cos(cube_ori) * dist_cube_bowl,
                 np.sin(cube_ori) * dist_cube_bowl]
-            cube_xy[0] = np.clip(cube_xy[0], 0.3, None)
 
         cube_q = [1, 0, 0, 0]
         if self.obj_init_rot_z:
@@ -396,9 +395,6 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
     def _initialize_agent(self):
         super()._initialize_agent()
-        if self.real_setup:
-            self.agent.robot.set_pose(Pose([0.0, 0.0, 0.1]))
-
         if self.pmodel is None:
             self.pmodel = self.agent.robot.create_pinocchio_model()
             self.ee_link_idx = self.agent.robot.get_links().index(self.tcp)
@@ -1133,7 +1129,11 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                              pose2.p, pose2.q, 512, 512, 1, 0.01, 10),
             ])
         else:
-            pose = look_at([0.4, -1.1, 0.5], [0.4, 0.2, -0.2])
+            #pose = look_at([0.4, -1.1, 0.5], [0.4, 0.2, -0.2])
+            # SAPIEN camera pose is forward(x), left(y) and up(z)
+            # T @ np.array([[0,-1,0,0],[0,0,-1,0],[1,0,0,0],[0,0,0,1]])
+            pose = Pose([0.582913, -0.84103, 0.447668],
+                        [0.663717, -0.156798, 0.153559, 0.715062])
             camera_configs.append(
                 CameraConfig("render_camera",
                              pose.p, pose.q, 640, 480, 1, 0.01, 10)
