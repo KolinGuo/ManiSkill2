@@ -522,10 +522,10 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
         obs = OrderedDict(
             tcp_pose=vectorize_pose(self.tcp.pose),
-            goal_pos=self.goal_pos,
         )
         if self._obs_mode in ["state", "state_dict"]:
             obs.update(
+                goal_pos=self.goal_pos,
                 tcp_to_goal_pos=self.goal_pos - self.tcp.pose.p,
                 cube_pose=vectorize_pose(self.cube.pose),
                 tcp_to_cube_pos=self.cube.pose.p - self.tcp.pose.p,
