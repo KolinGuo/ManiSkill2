@@ -113,6 +113,13 @@ def get_axis_aligned_bbox_for_cube(cube_actor):
               no_static_checks=True, stage2_check_stage1=False,
               success_needs_ungrasp=True, check_collision_during_init=False,
               robot_base_at_world_frame=True)
+@register_env("PlaceCubeInBowlStagedXArm-v8",
+              max_episode_steps=50, extra_state_obs=True,
+              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+              reward_mode="sparse_staged_v3", stage_obs=True,
+              robot="xarm7", real_setup=True, image_obs_mode="sideview",
+              no_static_checks=True, stage2_check_stage1=False,
+              success_needs_ungrasp=True, check_collision_during_init=False)
 @register_env("PlaceCubeInBowlSAMStaged-v7",
               max_episode_steps=50, extra_state_obs=True,
               fix_init_bowl_pos=True, dist_cube_bowl=0.15,
