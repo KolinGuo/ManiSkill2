@@ -965,6 +965,9 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
         if self._obs_mode == "image" and self._image_obs_mode != "hand_base":
             obs = resize_obs_images(obs, self.image_obs_shape)
+            # Remove Segmentation
+            for cam_name in obs["image"]:
+                obs["image"][cam_name].pop("Segmentation", None)
 
         return obs
 
