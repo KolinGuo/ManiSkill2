@@ -121,10 +121,11 @@ def get_axis_aligned_bbox_for_cube(cube_actor):
               robot="xarm7", real_setup=True, image_obs_mode="sideview",
               no_static_checks=True, stage2_check_stage1=False,
               success_needs_ungrasp=True, check_collision_during_init=False)
-@register_env("PlaceCubeInBowlSAMStaged-v7",
+@register_env("PlaceCubeInBowlSAMStagedXArm-v8",
               max_episode_steps=50, extra_state_obs=True,
               fix_init_bowl_pos=True, dist_cube_bowl=0.15,
               reward_mode="grounded_sam_sparse_staged_v3", stage_obs=True,
+              robot="xarm7", real_setup=True, image_obs_mode="sideview",
               no_static_checks=True, stage2_check_stage1=False,
               success_needs_ungrasp=True, check_collision_during_init=False)
 class PlaceCubeInBowlEnv(StationaryManipulationEnv):
@@ -801,10 +802,16 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
     def get_state(self) -> np.ndarray:
         state = super().get_state()
-        return np.hstack([state, self.goal_pos,
-                          self.current_stage.astype(float)])
+        state = np.hstack([state, self.goal_pos,
+                           self.current_stage.astype(float)])
+        if self.use_grounded_sam:
+            state = np.hstack([state, self.sam_current_stage.astype(float)])
+        return state
 
     def set_state(self, state):
+        if self.use_grounded_sam:
+            self.sam_current_stage = state[-self.num_stages:].astype(bool)
+            state = state[:-self.num_stages]
         self.current_stage = state[-self.num_stages:].astype(bool)
         self.goal_pos = state[-3-self.num_stages:-self.num_stages]
         super().set_state(state[:-3-self.num_stages])
