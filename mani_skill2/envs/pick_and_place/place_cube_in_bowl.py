@@ -23,6 +23,7 @@ from mani_skill2.utils.geometry import (
     get_axis_aligned_bbox_for_actor,
     angle_between_vec
 )
+from mani_skill2.utils.camera import resize_obs_images
 
 from .base_env import StationaryManipulationEnv
 from .pick_single import build_actor_ycb
@@ -140,6 +141,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                  model_json: str = None,
                  model_ids: List[str] = ('024_bowl'),
                  image_obs_mode=None,
+                 image_obs_shape=(128, 128),
                  obj_init_rot_z=True,
                  obj_init_rot=0,
                  extra_state_obs=False,
@@ -227,6 +229,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         if image_obs_mode not in self.SUPPORTED_IMAGE_OBS_MODES:
             raise NotImplementedError("Unsupported image obs mode: {}".format(image_obs_mode))
         self._image_obs_mode = image_obs_mode
+        self.image_obs_shape = image_obs_shape
         if self.real_setup:
             assert self._image_obs_mode == "sideview"
 
@@ -960,6 +963,9 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
             self.recent_sam_obs = sam_obs
 
+        if self._obs_mode == "image" and self._image_obs_mode != "hand_base":
+            obs = resize_obs_images(obs, self.image_obs_shape)
+
         return obs
 
     def get_info(self, **kwargs) -> dict:
@@ -1150,7 +1156,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                         [0.663717, -0.156798, 0.153559, 0.715062])
             camera_configs.append(
                 CameraConfig("render_camera",
-                             pose.p, pose.q, 640, 480, 1, 0.01, 10)
+                             pose.p, pose.q, 848, 480, np.deg2rad(43.5), 0.01, 10)
             )
 
         # Add Segmentation
