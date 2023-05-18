@@ -1,5 +1,7 @@
+import os
+import shutil
 import re
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 from pathlib import Path
 from typing import Union, Dict, List, Tuple
 
@@ -24,6 +26,8 @@ from mani_skill2.utils.geometry import (
     angle_between_vec
 )
 from mani_skill2.utils.camera import resize_obs_images
+
+from pyrl.utils.data import GDict
 
 from .base_env import StationaryManipulationEnv
 from .pick_single import build_actor_ycb
@@ -125,6 +129,7 @@ def get_axis_aligned_bbox_for_cube(cube_actor):
               max_episode_steps=50, extra_state_obs=True,
               fix_init_bowl_pos=True, dist_cube_bowl=0.15,
               reward_mode="grounded_sam_sparse_staged_v3", stage_obs=True,
+              save_trajectory=True,
               robot="xarm7", real_setup=True, image_obs_mode="sideview",
               no_static_checks=True, stage2_check_stage1=False,
               success_needs_ungrasp=True, check_collision_during_init=False)
@@ -162,6 +167,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                  real_setup=False,
                  robot_base_at_world_frame=False,
                  remove_obs_extra=[],
+                 save_trajectory=False,
                  **kwargs):
         if asset_root is None:
             asset_root = self.DEFAULT_ASSET_ROOT
@@ -223,6 +229,17 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             self._initialize_grounded_sam(**gsam_track_cfg)
             self.recent_sam_obs = None
             self.sam_current_stage = np.zeros(self.num_stages).astype(bool)
+        self.save_trajectory = save_trajectory
+        if self.save_trajectory:
+            self.episode_trajs = {}  # {traj_#: {key: value}}
+            self.current_traj = defaultdict(list)
+            self.episode_cnt = 0
+            self.save_traj_per_episode = 20
+            # Create folder to store training trajectory
+            self.sam_traj_dir = Path(os.environ["log_dir"]) / 'sam_train_traj'
+            if self.sam_traj_dir.is_dir():
+                shutil.rmtree(self.sam_traj_dir)
+            self.sam_traj_dir.mkdir(parents=True)
 
         # Image obs mode
         if image_obs_mode is None:
@@ -275,12 +292,33 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             self.recent_sam_obs = None
             self.sam_current_stage = np.zeros(self.num_stages).astype(bool)
 
+            # Save training trajectory
+            if self.save_trajectory:
+                # save only if current episode has at least stepped once
+                if "action" in self.current_traj:
+                    self.episode_cnt += 1
+
+                    traj_name = f"traj_{self.episode_cnt}"
+                    self.episode_trajs[traj_name] = self.current_traj
+
+                    if self.episode_cnt % self.save_traj_per_episode == 0:
+                        GDict(self.episode_trajs).to_hdf5(
+                            self.sam_traj_dir / f"{traj_name}.h5"
+                        )
+                        self.episode_trajs = {}
+                self.current_traj = defaultdict(list)
+
         self._prev_actor_poses = {}
         self.set_episode_rng(seed)
         _reconfigure = self._set_model(model_id, model_scale)
         reconfigure = _reconfigure or reconfigure
 
-        return super().reset(seed=self._episode_seed, reconfigure=reconfigure)
+        obs = super().reset(seed=self._episode_seed, reconfigure=reconfigure)
+
+        if self.use_grounded_sam and self.save_trajectory:
+            self.current_traj["env_states"].append(self.get_state())
+            self.current_traj["sam_obs"].append(self.recent_sam_obs)
+        return obs
 
     def _set_model(self, model_id, model_scale):
         """Set the model id and scale. If not provided, choose one randomly."""
@@ -939,9 +977,9 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             H, W = rgb_images.shape[1:-1]
 
             sam_obs = OrderedDict()
-            sam_obs["sam_rgb_images"] = rgb_images
-            sam_obs["sam_xyz_images"] = xyz_images
-            sam_obs["sam_xyz_masks"] = xyz_masks
+            # sam_obs["sam_rgb_images"] = rgb_images
+            # sam_obs["sam_xyz_images"] = xyz_images
+            # sam_obs["sam_xyz_masks"] = xyz_masks
 
             # Run grounded_sam_track
             ret_dict = self.grounded_sam_track.predict_and_track_batch(
@@ -1079,6 +1117,13 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                 else:  # boolean
                     info[f"sam/{k}_acc"] = (v == info[k])
 
+        if self.use_grounded_sam and self.save_trajectory:
+            self.current_traj["env_states"].append(self.get_state())
+            self.current_traj["sam_obs"].append(self.recent_sam_obs)
+            self.current_traj["action"].append(action)
+            self.current_traj["reward"].append(reward)
+            self.current_traj["done"].append(done)
+            self.current_traj["info"].append(info)
         return obs, reward, done, info
 
     # Add multi-view cameras
