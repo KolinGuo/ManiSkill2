@@ -1081,11 +1081,14 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                 bowl_visible = True
 
             # Extract position
-            cube_pos = np.mean(cube_pts, axis=0)
-            bowl_pos = np.mean(bowl_pts, axis=0)
+            #cube_pos = np.mean(cube_pts, axis=0)
+            #bowl_pos = np.mean(bowl_pts, axis=0)
             # Extract bbox from object_pts
-            bowl_mins, bowl_maxs = bowl_pts.min(0), bowl_pts.max(0)
             cube_mins, cube_maxs = cube_pts.min(0), cube_pts.max(0)
+            bowl_mins, bowl_maxs = bowl_pts.min(0), bowl_pts.max(0)
+            # Extract position from bbox
+            cube_pos = np.mean([cube_mins, cube_maxs], axis=0)
+            bowl_pos = np.mean([bowl_mins, bowl_maxs], axis=0)
 
             tcp_to_cube_dist = np.linalg.norm(cube_pos - self.tcp.pose.p)
             is_cube_inside = self.check_cube_inside(
