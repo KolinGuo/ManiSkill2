@@ -346,7 +346,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         if model_scale != self.model_scale:
             self.model_scale = model_scale
             reconfigure = True
-            
+
         if self.cube_size_randomization:
             self.cube_half_size = self.original_cube_half_size * self._episode_rng.uniform(0.7, 1.3)
             reconfigure = True
