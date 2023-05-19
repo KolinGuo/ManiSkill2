@@ -233,6 +233,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         if self.use_grounded_sam:
             self._initialize_grounded_sam(**gsam_track_cfg)
             self.recent_sam_obs = None
+            self.recent_valid_sam_pts = {}
             self.sam_current_stage = np.zeros(self.num_stages).astype(bool)
         self.save_trajectory = save_trajectory
         if self.save_trajectory:
@@ -293,6 +294,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self.current_stage = np.zeros(self.num_stages).astype(bool)
         if self.use_grounded_sam:
             self.recent_sam_obs = None
+            self.recent_valid_sam_pts = {}
             self.sam_current_stage = np.zeros(self.num_stages).astype(bool)
 
             # Save training trajectory
@@ -1064,6 +1066,20 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             cube_pts = self.recent_sam_obs["object_filt_pcds"][self.env_object_texts[0]]
             bowl_pts = self.recent_sam_obs["object_filt_pcds"][self.env_object_texts[1]]
 
+            # If object is not visible, use last visible pts as current obs
+            if cube_pts.size == 0:
+                cube_pts = self.recent_valid_sam_pts[self.env_object_texts[0]]
+                cube_visible = False
+            else:
+                self.recent_valid_sam_pts[self.env_object_texts[0]] = cube_pts
+                cube_visible = True
+            if bowl_pts.size == 0:
+                bowl_pts = self.recent_valid_sam_pts[self.env_object_texts[1]]
+                bowl_visible = False
+            else:
+                self.recent_valid_sam_pts[self.env_object_texts[1]] = bowl_pts
+                bowl_visible = True
+
             # Extract position
             cube_pos = np.mean(cube_pts, axis=0)
             bowl_pos = np.mean(bowl_pts, axis=0)
@@ -1105,6 +1121,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
             assert self.no_static_checks, "There are still static checks"
             sam_eval_dict = dict(
+                cube_visible=cube_visible,
+                bowl_visible=bowl_visible,
                 cube_mask_iou=cube_mask_iou,
                 bowl_mask_iou=bowl_mask_iou,
                 cube_pos_dist=cube_pos_dist,
@@ -1181,7 +1199,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                 info[f"sam/{k}"] = v
 
                 # Skip accuracy computation for these keys
-                if "mask_iou" in k or "pos_dist" in k or "bbox_iou" in k:
+                if ("mask_iou" in k or "pos_dist" in k or "bbox_iou" in k
+                        or "visible" in k):
                     continue
 
                 # Add accuracy eval info
