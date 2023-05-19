@@ -251,8 +251,6 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         if self.real_setup:
             assert self._image_obs_mode == "sideview"
 
-        self.max_episode_steps = 50  # FIXME: maybe unnecessary
-
         super().__init__(*args, **kwargs)
 
     def _check_assets(self):
@@ -1332,39 +1330,6 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             xyz_images.append(xyz_image.reshape(*image_shape, 3))
 
         return rgb_images, xyz_images, xyz_masks
-
-    # FIXME: remove
-    # def _initialize_grounded_sam(self):
-    #     """Initialize properties used by grounded_sam"""
-    #     self.env_object_texts = ["green cube", "red bowl"]
-
-    #     # if self.grounded_sam is None:
-    #     #     import os
-    #     #     self.grounded_sam_output_dir = Path(os.environ["log_dir"]) \
-    #     #         / 'grounded_sam'
-    # def compute_sparse_grounded_sam_reward(self, info, **kwargs) -> float:
-    #
-    #     def save_pred_result(correct_pred: bool, rgb_images, text_prompt,
-    #                          boxes_filt_batch: List[np.ndarray],
-    #                          pred_phrases_batch: List[List[str]],
-    #                          pred_masks_batch: List[np.ndarray]):
-    #         for img_i, rgb_image in enumerate(rgb_images):
-    #             boxes_filt = boxes_filt_batch[img_i]
-    #             pred_phrases = pred_phrases_batch[img_i]
-    #             pred_masks = pred_masks_batch[img_i]
-    #             # Save pred_mask results
-    #             import uuid
-    #             self.grounded_sam.save_pred_result(
-    #                 self.grounded_sam_output_dir / (f'{correct_pred}_{self._elapsed_steps}_'+str(uuid.uuid4())),
-    #                 rgb_image, text_prompt,
-    #                 boxes_filt, pred_phrases, pred_masks
-    #             )
-    #     save_pred_result(
-    #         info["success"] == False, rgb_images,
-    #         text_prompt + f'(env {info["success"]}, pred {False})',
-    #         boxes_filt_batch, pred_phrases_batch, pred_masks_batch
-    #     )
-    #     return 0.0
 
 
 @register_env("PlaceCubeInBowlEasy-v0", max_episode_steps=20, extra_state_obs=True,
