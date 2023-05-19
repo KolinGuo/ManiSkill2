@@ -1009,12 +1009,42 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             self.recent_sam_obs = sam_obs
 
         if self._obs_mode == "image" and self._image_obs_mode != "hand_base":
-            obs = resize_obs_images(obs, self.image_obs_shape)
             # Remove Segmentation
             for cam_name in obs["image"]:
                 obs["image"][cam_name].pop("Segmentation", None)
+            obs = resize_obs_images(obs, self.image_obs_shape)
 
         return obs
+
+    @staticmethod
+    def get_mask_iou(gt_mask: np.ndarray, pred_mask: np.ndarray) -> float:
+        assert gt_mask.dtype == bool, f"Got {gt_mask.dtype}"
+        assert pred_mask.dtype == bool, f"Got {pred_mask.dtype}"
+        assert gt_mask.shape == pred_mask.shape, \
+            f"{gt_mask.shape} != {pred_mask.shape}"
+
+        return float((gt_mask & pred_mask).sum() / (gt_mask | pred_mask).sum())
+
+    @staticmethod
+    def get_bbox_iou(gt_bbox_mins, gt_bbox_maxs,
+                     pred_bbox_mins, pred_bbox_maxs) -> float:
+        assert np.all(gt_bbox_maxs >= gt_bbox_mins), \
+            f"Diff: {gt_bbox_maxs - gt_bbox_mins}"
+        assert np.all(pred_bbox_maxs >= pred_bbox_mins), \
+            f"Diff: {pred_bbox_maxs - pred_bbox_mins}"
+
+        gt_bbox_area = np.prod(gt_bbox_maxs - gt_bbox_mins)
+        pred_bbox_area = np.prod(pred_bbox_maxs - pred_bbox_mins)
+
+        inter_bbox_mins = np.maximum(gt_bbox_mins, pred_bbox_mins)
+        inter_bbox_maxs = np.minimum(gt_bbox_maxs, pred_bbox_maxs)
+        if np.any(inter_bbox_maxs <= inter_bbox_mins):
+            return 0.0
+
+        inter_bbox_area = np.prod(inter_bbox_maxs - inter_bbox_mins)
+
+        return float(inter_bbox_area
+            / (gt_bbox_area + pred_bbox_area - inter_bbox_area))
 
     def get_info(self, **kwargs) -> dict:
         info = super().get_info(**kwargs)
@@ -1023,8 +1053,9 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             cube_pts = self.recent_sam_obs["object_filt_pcds"][self.env_object_texts[0]]
             bowl_pts = self.recent_sam_obs["object_filt_pcds"][self.env_object_texts[1]]
 
-            # Extract cube position
+            # Extract position
             cube_pos = np.mean(cube_pts, axis=0)
+            bowl_pos = np.mean(bowl_pts, axis=0)
             # Extract bbox from object_pts
             bowl_mins, bowl_maxs = bowl_pts.min(0), bowl_pts.max(0)
             cube_mins, cube_maxs = cube_pts.min(0), cube_pts.max(0)
@@ -1037,8 +1068,38 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             is_cube_grasped = bool(self.agent.robot.get_qpos()[-2:].sum() < 0.07)
             is_bowl_upwards = True  # NOTE: no checks, assume always True
 
+            # Compute pred_mask iou
+            cube_mask_iou = self.get_mask_iou(
+                self.recent_sam_obs["pred_masks"] == 1,
+                self._recent_gt_actor_mask == self.cube.id
+            )
+            bowl_mask_iou = self.get_mask_iou(
+                self.recent_sam_obs["pred_masks"] == 2,
+                self._recent_gt_actor_mask == self.bowl.id
+            )
+
+            # Compute position difference
+            cube_pos_dist = np.linalg.norm(cube_pos - self.cube.pose.p)
+            bowl_pos_dist = np.linalg.norm(bowl_pos - self.bowl.pose.p)
+
+            # Compute pred_bbox iou
+            cube_bbox_iou = self.get_bbox_iou(
+                *get_axis_aligned_bbox_for_cube(self.cube),
+                cube_mins, cube_maxs
+            )
+            bowl_bbox_iou = self.get_bbox_iou(
+                *get_axis_aligned_bbox_for_actor(self.bowl),
+                bowl_mins, bowl_maxs
+            )
+
             assert self.no_static_checks, "There are still static checks"
             sam_eval_dict = dict(
+                cube_mask_iou=cube_mask_iou,
+                bowl_mask_iou=bowl_mask_iou,
+                cube_pos_dist=cube_pos_dist,
+                bowl_pos_dist=bowl_pos_dist,
+                cube_bbox_iou=cube_bbox_iou,
+                bowl_bbox_iou=bowl_bbox_iou,
                 tcp_to_cube_dist=tcp_to_cube_dist,
                 is_cube_inside=is_cube_inside,
                 is_cube_grasped=is_cube_grasped,
@@ -1108,6 +1169,10 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                 # all sam related info are prefixed with sam/
                 info[f"sam/{k}"] = v
 
+                # Skip accuracy computation for these keys
+                if "mask_iou" in k or "pos_dist" in k or "bbox_iou" in k:
+                    continue
+
                 # Add accuracy eval info
                 if isinstance(v, float):
                     if k == "reward":
@@ -1143,6 +1208,11 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         images = OrderedDict()
         for name, cam in self._render_cameras.items():
             images[name] = cam.get_images()
+
+        # Save gt mask for calculate SAM pred_mask iou, [n_cams, H, W]
+        self._recent_gt_actor_mask = np.stack(
+            [d["Segmentation"][..., 1] for d in images.values()], axis=0
+        )
         return images
 
     def get_camera_params_sideview(self) -> Dict[str, Dict[str, np.ndarray]]:
