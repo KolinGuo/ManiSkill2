@@ -153,6 +153,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                  extra_state_obs=False,
                  fix_init_bowl_pos=False,
                  dist_cube_bowl=0.2,
+                 cube_size_randomization=False,
+                 bowl_size_randomization=False,
                  stage_obs=False,
                  tcp_to_cube_dist_thres=0.015,
                  check_collision_during_init=True,
@@ -194,6 +196,9 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self.obj_init_rot_z = obj_init_rot_z
         self.obj_init_rot = obj_init_rot
         self.cube_half_size = np.array([0.02] * 3, np.float32)
+        self.original_cube_half_size = self.cube_half_size.copy()
+        self.cube_size_randomization = cube_size_randomization
+        self.bowl_size_randomization = bowl_size_randomization
 
         self.stage_obs = stage_obs
         self.num_stages = 3
@@ -329,13 +334,21 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             reconfigure = True
 
         if model_scale is None:
-            model_scales = self.model_db[self.model_id].get("scales")
-            if model_scales is None:
-                model_scale = 1.0
+            if not self.bowl_size_randomization:
+                model_scales = self.model_db[self.model_id].get("scales")
+                if model_scales is None:
+                    model_scale = 1.0
+                else:
+                    model_scale = random_choice(model_scales, self._episode_rng)
             else:
-                model_scale = random_choice(model_scales, self._episode_rng)
+                model_scale = self._episode_rng.uniform(0.8, 1.2)
+                reconfigure = True
         if model_scale != self.model_scale:
             self.model_scale = model_scale
+            reconfigure = True
+            
+        if self.cube_size_randomization:
+            self.cube_half_size = self.original_cube_half_size * self._episode_rng.uniform(0.7, 1.3)
             reconfigure = True
 
         model_info = self.model_db[self.model_id]
