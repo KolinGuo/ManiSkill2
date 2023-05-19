@@ -129,7 +129,6 @@ def get_axis_aligned_bbox_for_cube(cube_actor):
               max_episode_steps=50, extra_state_obs=True,
               fix_init_bowl_pos=True, dist_cube_bowl=0.15,
               reward_mode="grounded_sam_sparse_staged_v3", stage_obs=True,
-              save_trajectory=True,
               robot="xarm7", real_setup=True, image_obs_mode="sideview",
               no_static_checks=True, stage2_check_stage1=False,
               success_needs_ungrasp=True, check_collision_during_init=False)
