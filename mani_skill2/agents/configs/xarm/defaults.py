@@ -86,8 +86,8 @@ class XArmDefaultConfig:
         # However, tune a good force limit to have a good mimic behavior
         gripper_pd_joint_pos = PDJointPosMimicControllerConfig(
             self.gripper_joint_names,
-            -0.01,  # a trick to have force when the object is thin
-            0.04,
+            0.00, # open
+            0.05, # close; also a trick to have force when the object is thin
             self.gripper_stiffness,
             self.gripper_damping,
             self.gripper_force_limit,
