@@ -151,7 +151,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
     def __init__(self, *args,
                  asset_root: str = None,
                  model_json: str = None,
-                 model_ids: List[str] = ('024_bowl'),
+                 model_ids: List[str] = ('024_green_bowl'),
                  image_obs_mode=None,
                  image_obs_shape=(128, 128),
                  obj_init_rot_z=True,
@@ -382,7 +382,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self._load_model()
         self.bowl.set_damping(0.1, 0.1)
         self.cube = self._build_cube(self.cube_half_size,
-                                     color=(0, 1, 0), name="cube")
+                                     color=(1, 0, 0), name="cube")
 
     def _settle(self, t):
         sim_steps = int(self.sim_freq * t)
@@ -907,7 +907,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         """
         from grounded_sam_track import GroundedSAMTrack
 
-        self.env_object_texts = ["green cube", "red bowl"]
+        self.env_object_texts = ["red cube", "green bowl"]
 
         self.grounded_sam_track = GroundedSAMTrack(
             aot_max_len_long_term=aot_max_len_long_term,
