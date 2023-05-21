@@ -74,6 +74,13 @@ def get_axis_aligned_bbox_for_cube(cube_actor):
               robot="xarm7", real_setup=True, image_obs_mode="sideview",
               no_static_checks=True, success_needs_ungrasp=True,
               check_collision_during_init=False)
+@register_env("PlaceCubeInBowlXArm-v6", max_episode_steps=50, extra_state_obs=True,
+              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+              reward_mode="dense_v2",
+              robot="xarm7", real_setup=True, image_obs_mode="sideview",
+              no_static_checks=True, success_needs_ungrasp=True,
+              success_needs_high_gripper=True,
+              check_collision_during_init=False)
 @register_env("PlaceCubeInBowlStaged-v2",
               max_episode_steps=50, extra_state_obs=True,
               fix_init_bowl_pos=True, dist_cube_bowl=0.15,
@@ -162,6 +169,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                  stage2_check_stage1=True,
                  no_reaching_reward_in_stage2=False,
                  success_needs_ungrasp=False,
+                 success_needs_high_gripper=False,
+                 tcp_height_thres=0.10,
                  ungrasp_sparse_reward=False,
                  ungrasp_reward_scale=1.0,
                  gsam_track_cfg={},
@@ -216,6 +225,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self.success_needs_ungrasp = success_needs_ungrasp
         self.ungrasp_sparse_reward = ungrasp_sparse_reward
         self.ungrasp_reward_scale = ungrasp_reward_scale
+        self.success_needs_high_gripper = success_needs_high_gripper
+        self.tcp_height_thres = tcp_height_thres
 
         self.pmodel = None
 
@@ -688,6 +699,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         is_bowl_upwards = abs(angle_between_vec(bowl_up_axis,
                                                 z_axis_world)) < 0.1*np.pi
         is_cube_grasped = self.agent.check_grasp(self.cube)
+        is_gripper_high_enough = self.tcp.pose.p[2] >= self.tcp_height_thres
         eval_dict = dict(
             is_cube_grasped=is_cube_grasped,
             is_cube_inside=is_cube_inside,
@@ -695,6 +707,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             is_cube_static=is_cube_static,
             is_bowl_static=is_bowl_static,
             is_bowl_upwards=is_bowl_upwards,
+            is_gripper_high_enough=is_gripper_high_enough,
             success=(is_cube_inside and is_robot_static and
                      is_cube_static and is_bowl_static and is_bowl_upwards),
         )
@@ -708,6 +721,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
         if self.success_needs_ungrasp:
             eval_dict["success"] = eval_dict["success"] and (not is_cube_grasped)
+        if self.success_needs_high_gripper:
+            eval_dict["success"] = eval_dict["success"] and is_gripper_high_enough
 
         if "sparse_staged" in self._reward_mode:
             self.current_stage = self.get_current_stage(eval_dict)
@@ -775,6 +790,10 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                 max_gripper_width = self.agent.robot.get_qlimits()[-2:, -1].sum()
                 gripper_width = self.agent.robot.get_qpos()[-2:].sum()
                 reward += gripper_width / max_gripper_width * self.ungrasp_reward_scale
+
+            # lift gripper reward (to tcp_height_thres + 0.01)
+            if self.success_needs_high_gripper:
+                reward += 1 - np.tanh(5 * abs(self.tcp.pose.p[2] - self.tcp_height_thres - 1e-2))
         else:
             tcp_to_cube_dist = info["tcp_to_cube_dist"]
             reaching_reward = 1 - np.tanh(5 * tcp_to_cube_dist)
@@ -844,6 +863,10 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             max_gripper_width = self.agent.robot.get_qlimits()[-2:, -1].sum()
             gripper_width = self.agent.robot.get_qpos()[-2:].sum()
             reward += gripper_width / max_gripper_width
+
+            # lift gripper reward (to tcp_height_thres + 0.01)
+            if self.success_needs_high_gripper:
+                reward += 1 - np.tanh(5 * abs(self.tcp.pose.p[2] - self.tcp_height_thres - 1e-2))
         else:
             reaching_reward = 1 - np.tanh(5 * tcp_to_cube_dist)
             reward += reaching_reward
@@ -1096,6 +1119,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             )
             is_cube_grasped = bool(self.agent.robot.get_qpos()[-2:].sum() < 0.07)
             is_bowl_upwards = True  # NOTE: no checks, assume always True
+            is_gripper_high_enough = self.tcp.pose.p[2] >= self.tcp_height_thres
 
             # Compute pred_mask iou
             cube_mask_iou = self.get_mask_iou(
@@ -1138,6 +1162,9 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                 success=(is_cube_inside and is_bowl_upwards
                          and (not is_cube_grasped))
             )
+
+            if self.success_needs_high_gripper:
+                sam_eval_dict["success"] = sam_eval_dict["success"] and is_gripper_high_enough
 
             if "sparse_staged" in self._reward_mode:
                 self.sam_current_stage = self.get_current_stage(
