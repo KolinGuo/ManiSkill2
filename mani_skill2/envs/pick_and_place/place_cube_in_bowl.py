@@ -81,6 +81,14 @@ def get_axis_aligned_bbox_for_cube(cube_actor):
               no_static_checks=True, success_needs_ungrasp=True,
               success_needs_high_gripper=True,
               check_collision_during_init=False)
+@register_env("PlaceCubeInBowlXArm-v7", max_episode_steps=50, extra_state_obs=True,
+              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+              reward_mode="dense_v2",
+              robot="xarm7", real_setup=True, image_obs_mode="sideview",
+              no_static_checks=True, success_needs_ungrasp=True,
+              success_needs_high_gripper=True,
+              success_cube_not_strictly_inside=True,
+              check_collision_during_init=False)
 @register_env("PlaceCubeInBowlStaged-v2",
               max_episode_steps=50, extra_state_obs=True,
               fix_init_bowl_pos=True, dist_cube_bowl=0.15,
@@ -170,6 +178,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                  no_reaching_reward_in_stage2=False,
                  success_needs_ungrasp=False,
                  success_needs_high_gripper=False,
+                 success_cube_not_strictly_inside=False,
                  tcp_height_thres=0.10,
                  ungrasp_sparse_reward=False,
                  ungrasp_reward_scale=1.0,
@@ -226,6 +235,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self.ungrasp_sparse_reward = ungrasp_sparse_reward
         self.ungrasp_reward_scale = ungrasp_reward_scale
         self.success_needs_high_gripper = success_needs_high_gripper
+        self.success_cube_not_strictly_inside = success_cube_not_strictly_inside
         self.tcp_height_thres = tcp_height_thres
 
         self.pmodel = None
@@ -577,11 +587,17 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
         bowl_pos = self.bowl.pose.p
 
-        self.goal_pos = bowl_pos + [0, 0, 0.05]
+        if not self.success_cube_not_strictly_inside:
+            self.goal_pos = bowl_pos + [0, 0, 0.05]
+        else:
+            self.goal_pos = bowl_pos + [0, 0, 0.08]
 
     def _get_obs_extra(self) -> OrderedDict:
         # Update goal_pos in case the bowl moves
-        self.goal_pos = self.bowl.pose.p + [0, 0, 0.05]
+        if not self.success_cube_not_strictly_inside:
+            self.goal_pos = self.bowl.pose.p + [0, 0, 0.05]
+        else:
+            self.goal_pos = self.bowl.pose.p + [0, 0, 0.08]
 
         obs = OrderedDict(
             tcp_pose=vectorize_pose(self.tcp.pose),
@@ -634,13 +650,14 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         # For xy axes, cube need to be inside bowl
         # For z axis, cube_z_max can be greater than bowl_z_max
         #   by its half_length
-        if bowl_mins[0] <= cube_mins[0] and cube_maxs[0] <= bowl_maxs[0] and \
-           bowl_mins[1] <= cube_mins[1] and cube_maxs[1] <= bowl_maxs[1] and \
-           bowl_mins[2] <= cube_mins[2] and \
-           cube_maxs[2] <= bowl_maxs[2] + self.cube_half_size.max():
-            return True
+        cube_inside = bowl_mins[0] <= cube_mins[0] and cube_maxs[0] <= bowl_maxs[0] and \
+            bowl_mins[1] <= cube_mins[1] and cube_maxs[1] <= bowl_maxs[1] and bowl_mins[2] <= cube_mins[2]
+        if not self.success_cube_not_strictly_inside:
+            cube_inside = cube_inside and cube_maxs[2] <= bowl_maxs[2] + self.cube_half_size.max()
+        else:
+            cube_inside = cube_inside and cube_maxs[2] <= bowl_maxs[2] + 0.15 # hardcoded
 
-        return False
+        return cube_inside
 
     def check_robot_static(self, thresh=0.2):
         # Assume that the last two DoF is gripper
