@@ -515,15 +515,6 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                 max_iterations=100
             )
 
-            # NOTE: Open gripper (currently, xarm7 gripper is opened at q_min)
-            if 'panda' in self.robot_uid:
-                open_gripper_q_idx = 1  # the "open" qlimit index of the gripper
-            elif 'xarm' in self.robot_uid:
-                open_gripper_q_idx = 0
-            else:
-                raise NotImplementedError()
-            qpos[-2:] = self.agent.robot.get_qlimits()[-2:, open_gripper_q_idx]
-
             if (not self.check_collision_during_init) and success:
                 self.robot_grasp_cube_qpos = qpos
                 break
