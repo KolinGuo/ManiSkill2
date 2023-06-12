@@ -184,6 +184,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                  ungrasp_reward_scale=1.0,
                  gsam_track_cfg={},
                  real_setup=False,
+                 two_real_cameras=False,
                  robot_base_at_world_frame=False,
                  remove_obs_extra=[],
                  save_trajectory=False,
@@ -241,6 +242,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self.pmodel = None
 
         self.real_setup = real_setup
+        self.two_real_cameras = two_real_cameras
         self.robot_base_at_world_frame = robot_base_at_world_frame
         self.remove_obs_extra = remove_obs_extra
 
@@ -402,8 +404,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
     def _initialize_bowl_actors(self):
         # The object will fall from a certain height
         if self.real_setup:
-            xy = self._episode_rng.uniform([0.4, -0.3], [0.55, 0.0], [2])
-            # print(xy)
+            xy = self._episode_rng.uniform([0.4, -0.2], [0.55, 0.0], [2])
         elif self.fix_init_bowl_pos:
             xy = self._episode_rng.uniform([-0.1, -0.05], [0, 0.05], [2])
         else:
@@ -456,15 +457,12 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             if cube_ori is None:
                 # cube_ori = self._episode_rng.uniform(-np.pi/4, np.pi*3/4)
                 cube_ori = self._episode_rng.uniform(0, 2 * np.pi)
-            cube_xy = self.bowl.pose.p[:2] + \
-                [np.cos(cube_ori) * self.dist_cube_bowl,
-                np.sin(cube_ori) * self.dist_cube_bowl]
+            dist_cube_bowl = self.dist_cube_bowl
         else:
-            dist_cube_bowl = self._episode_rng.uniform(0.15, 0.25)
+            dist_cube_bowl = self._episode_rng.uniform(0.15, 0.2)
             cube_ori = self._episode_rng.uniform(np.pi, 2 * np.pi)
-            cube_xy = self.bowl.pose.p[:2] + \
-                [np.cos(cube_ori) * dist_cube_bowl,
-                np.sin(cube_ori) * dist_cube_bowl]
+        cube_xy = self.bowl.pose.p[:2] + [np.cos(cube_ori) * dist_cube_bowl,
+                                          np.sin(cube_ori) * dist_cube_bowl]
 
         cube_q = [1, 0, 0, 0]
         if self.obj_init_rot_z:
@@ -1347,9 +1345,15 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             pose = Pose([0.582913, -0.84103, 0.447668],
                         [0.663717, -0.156798, 0.153559, 0.715062])
             camera_configs.append(
-                CameraConfig("render_camera",
-                             pose.p, pose.q, 848, 480, np.deg2rad(43.5), 0.01, 10)
+                CameraConfig("render_camera", pose.p, pose.q, 848, 480,
+                             np.deg2rad(43.5), 0.01, 10)
             )
+            if self.two_real_cameras:
+                pose2 = look_at([1.2, -0.1, 0.5], [0.3, -0.1, 0])
+                camera_configs.append(
+                    CameraConfig("render_camera_2", pose2.p, pose2.q, 848, 480,
+                                 np.deg2rad(43.5), 0.01, 10)
+                )
 
         # Add Segmentation
         for camera_cfg in camera_configs:
