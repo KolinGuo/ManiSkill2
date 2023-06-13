@@ -16,9 +16,17 @@ from mani_skill2.utils.common import (
 class RGBDObservationWrapper(gym.ObservationWrapper):
     """Map raw textures (Color and Position) to rgb and depth."""
 
-    def __init__(self, env):
+    def __init__(self, env, obs_mode="rgbd"):
+        """
+        :param obs_mode: if obs_mode == 'rgb', use only Color
+        """
         super().__init__(env)
+        self.obs_mode = obs_mode
         self.observation_space = deepcopy(env.observation_space)
+        # Remove Position from camera obs space
+        if self.obs_mode == "rgb":
+            [cam_space.spaces.pop("Position", None)
+             for cam_space in self.observation_space["image"].spaces.values()]
         self.update_observation_space(self.observation_space)
 
     @staticmethod
@@ -45,6 +53,9 @@ class RGBDObservationWrapper(gym.ObservationWrapper):
 
     def observation(self, observation: dict):
         image_obs = observation["image"]
+        if self.obs_mode == "rgb":
+            [cam_obs.pop("Position", None) for cam_obs in image_obs.values()]
+
         for cam_uid, ori_images in image_obs.items():
             new_images = OrderedDict()
             for key in ori_images:
