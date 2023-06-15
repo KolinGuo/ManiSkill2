@@ -151,7 +151,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
     DEFAULT_ASSET_ROOT = "{ASSET_DIR}/mani_skill2_ycb"
     DEFAULT_MODEL_JSON = "info_pick_v0.json"
 
-    SUPPORTED_IMAGE_OBS_MODES = ("hand_base", "sideview")
+    SUPPORTED_IMAGE_OBS_MODES = ("hand_base", "sideview", "hand_front")
     SUPPORTED_REWARD_MODES = ("dense", "dense_v2", "sparse", "sparse_staged",
                               "sparse_staged_v2", "sparse_staged_v3",
                               "grounded_sam_sparse_staged_v3")
@@ -278,8 +278,6 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             raise NotImplementedError("Unsupported image obs mode: {}".format(image_obs_mode))
         self._image_obs_mode = image_obs_mode
         self.image_obs_shape = image_obs_shape
-        if self.real_setup:
-            assert self._image_obs_mode == "sideview"
 
         super().__init__(*args, **kwargs)
 
@@ -1299,15 +1297,32 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         if self._image_obs_mode == "hand_base":
             return super()._get_obs_images()
 
-        assert self._image_obs_mode == "sideview"
+        if self._image_obs_mode == "sideview":
+            self.update_render_and_take_picture_sideview()
+            return OrderedDict(
+                agent=self._get_obs_agent(),
+                extra=self._get_obs_extra(),
+                camera_param=self.get_camera_params_sideview(),
+                image=self.get_images_sideview(),
+            )
+        elif self._image_obs_mode == "hand_front":
+            self.update_render_and_take_picture_sideview()
+            obs = OrderedDict(
+                agent=self._get_obs_agent(),
+                extra=self._get_obs_extra(),
+                camera_param=self.get_camera_params_sideview(),
+                image=self.get_images_sideview(),
+            )
 
-        self.update_render_and_take_picture_sideview()
-        return OrderedDict(
-            agent=self._get_obs_agent(),
-            extra=self._get_obs_extra(),
-            camera_param=self.get_camera_params_sideview(),
-            image=self.get_images_sideview(),
-        )
+            self.update_render()
+            self.take_picture()
+            obs["camera_param"]["hand_camera"] = self._cameras["hand_camera"].get_params()
+            obs["image"]["hand_camera"] = self._cameras["hand_camera"].get_images()
+            return obs
+        else:
+            raise NotImplementedError(
+                f'image_obs_mode "{self._image_obs_mode}" not implemented'
+            )
 
     def _setup_cameras(self):
         super()._setup_cameras()
