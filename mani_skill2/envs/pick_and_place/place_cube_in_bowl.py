@@ -179,6 +179,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                  success_needs_ungrasp=False,
                  success_needs_high_gripper=False,
                  success_cube_not_strictly_inside=False,
+                 cube_inside_bowl_bbox_scale=1.0,
                  tcp_height_thres=0.10,
                  ungrasp_sparse_reward=False,
                  ungrasp_reward_scale=1.0,
@@ -237,6 +238,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self.ungrasp_reward_scale = ungrasp_reward_scale
         self.success_needs_high_gripper = success_needs_high_gripper
         self.success_cube_not_strictly_inside = success_cube_not_strictly_inside
+        self.cube_inside_bowl_bbox_scale = cube_inside_bowl_bbox_scale
         self.tcp_height_thres = tcp_height_thres
 
         self.pmodel = None
@@ -644,6 +646,12 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         else:
             bowl_mins, bowl_maxs = get_axis_aligned_bbox_for_actor(self.bowl)
             cube_mins, cube_maxs = get_axis_aligned_bbox_for_cube(self.cube)
+
+        if not np.isclose(self.cube_inside_bowl_bbox_scale, 1.0):
+            bowl_bbox_size = bowl_maxs - bowl_mins
+            bowl_bbox_delta = bowl_bbox_size * (1 - self.cube_inside_bowl_bbox_scale) / 2.0
+            bowl_mins += bowl_bbox_delta
+            bowl_maxs -= bowl_bbox_delta
 
         # For xy axes, cube need to be inside bowl
         # For z axis, cube_z_max can be greater than bowl_z_max
