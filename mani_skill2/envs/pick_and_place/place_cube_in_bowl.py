@@ -90,13 +90,6 @@ def get_axis_aligned_bbox_for_cube(cube_actor):
               success_cube_not_strictly_inside=True,
               goal_height_delta=0.08,
               check_collision_during_init=False)
-@register_env("PlaceCubeInBowlXArm-v8", max_episode_steps=50, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
-              reward_mode="dense_v3",
-              robot="xarm7", real_setup=True, image_obs_mode="sideview",
-              no_static_checks=True, success_needs_ungrasp=True,
-              goal_height_delta=0.08,
-              check_collision_during_init=False)
 @register_env("PlaceCubeInBowlStaged-v2",
               max_episode_steps=50, extra_state_obs=True,
               fix_init_bowl_pos=True, dist_cube_bowl=0.15,
@@ -160,8 +153,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
     DEFAULT_MODEL_JSON = "info_pick_v0.json"
 
     SUPPORTED_IMAGE_OBS_MODES = ("hand_base", "sideview", "hand_front")
-    SUPPORTED_REWARD_MODES = ("dense", "dense_v2", "dense_v3",
-                              "sparse", "sparse_staged",
+    SUPPORTED_REWARD_MODES = ("dense", "dense_v2", "sparse", "sparse_staged",
                               "sparse_staged_v2", "sparse_staged_v3",
                               "grounded_sam_sparse_staged_v3")
 
@@ -188,7 +180,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                  success_needs_ungrasp=False,
                  success_needs_high_gripper=False,
                  success_cube_not_strictly_inside=False,
-                 cube_inside_bowl_bbox_scale=1.0,
+                 cube_inside_xy_bowl_bbox_scale=1.0,
                  goal_height_delta=0.05,
                  cube_above_delta=0.15,
                  tcp_height_thres=0.10,
@@ -249,7 +241,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self.ungrasp_reward_scale = ungrasp_reward_scale
         self.success_needs_high_gripper = success_needs_high_gripper
         self.success_cube_not_strictly_inside = success_cube_not_strictly_inside
-        self.cube_inside_bowl_bbox_scale = cube_inside_bowl_bbox_scale
+        self.cube_inside_xy_bowl_bbox_scale = cube_inside_xy_bowl_bbox_scale
         self.goal_height_delta = goal_height_delta
         self.cube_above_delta = cube_above_delta
         self.tcp_height_thres = tcp_height_thres
@@ -596,9 +588,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                 obj.set_pose(Pose(p=obj_pose.p - self.world_frame_delta_pos,
                                   q=obj_pose.q))
 
-        bowl_pos = self.bowl.pose.p
-
-        self.goal_pos = bowl_pos + [0, 0, self.goal_height_delta]
+        self.goal_pos = self.bowl.pose.p + [0, 0, self.goal_height_delta]
 
     def _get_obs_extra(self) -> OrderedDict:
         # Update goal_pos in case the bowl moves
@@ -643,7 +633,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
         return obs
 
-    def check_cube_above(self, bowl_bbox=None, cube_bbox=None):
+    def check_cube_inside(self, bowl_bbox=None, cube_bbox=None):
         """Check if the cube is placed inside the bowl"""
         if bowl_bbox is not None and cube_bbox is not None:
             bowl_mins, bowl_maxs = bowl_bbox
@@ -652,39 +642,10 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             bowl_mins, bowl_maxs = get_axis_aligned_bbox_for_actor(self.bowl)
             cube_mins, cube_maxs = get_axis_aligned_bbox_for_cube(self.cube)
 
-        if not np.isclose(self.cube_inside_bowl_bbox_scale, 1.0):
+        if not np.isclose(self.cube_inside_xy_bowl_bbox_scale, 1.0):
             bowl_bbox_size = bowl_maxs - bowl_mins
             bowl_bbox_size[-1] = 0.0
-            bowl_bbox_delta = bowl_bbox_size * (1 - self.cube_inside_bowl_bbox_scale) / 2.0
-            bowl_mins += bowl_bbox_delta
-            bowl_maxs -= bowl_bbox_delta
-
-        # For xy axes, cube need to be inside bowl
-        # For z axis, cube_z_max can be greater than bowl_z_max
-        #   by its half_length
-        return (
-            bowl_mins[0] <= cube_mins[0] and cube_maxs[0] <= bowl_maxs[0] and
-            bowl_mins[1] <= cube_mins[1] and cube_maxs[1] <= bowl_maxs[1] and
-            bowl_mins[2] <= cube_mins[2] and cube_maxs[2] <= bowl_maxs[2] + self.cube_above_delta
-        )
-
-    def check_cube_inside(self, bowl_bbox=None, cube_bbox=None,
-                          cube_above=None):
-        """Check if the cube is placed inside the bowl"""
-        if bowl_bbox is not None and cube_bbox is not None:
-            bowl_mins, bowl_maxs = bowl_bbox
-            cube_mins, cube_maxs = cube_bbox
-        else:
-            bowl_mins, bowl_maxs = get_axis_aligned_bbox_for_actor(self.bowl)
-            cube_mins, cube_maxs = get_axis_aligned_bbox_for_cube(self.cube)
-
-        if cube_above is not None:
-            return cube_above and cube_maxs[2] <= bowl_maxs[2] + self.cube_half_size.max()
-
-        if not np.isclose(self.cube_inside_bowl_bbox_scale, 1.0):
-            bowl_bbox_size = bowl_maxs - bowl_mins
-            bowl_bbox_size[-1] = 0.0
-            bowl_bbox_delta = bowl_bbox_size * (1 - self.cube_inside_bowl_bbox_scale) / 2.0
+            bowl_bbox_delta = bowl_bbox_size * (1 - self.cube_inside_xy_bowl_bbox_scale) / 2.0
             bowl_mins += bowl_bbox_delta
             bowl_maxs -= bowl_bbox_delta
 
@@ -739,8 +700,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         return flag_v and flag_ang_v
 
     def evaluate(self, **kwargs):
-        is_cube_above = self.check_cube_above()
-        is_cube_inside = self.check_cube_inside(cube_above=is_cube_above)
+        is_cube_inside = self.check_cube_inside()
         is_robot_static = self.check_robot_static()
         is_cube_static = self.check_actor_static(self.cube,
                                                  max_v=0.1, max_ang_v=0.2)
@@ -770,7 +730,6 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
         eval_dict = dict(
             is_cube_grasped=is_cube_grasped,
-            is_cube_above=is_cube_above,
             is_cube_inside=is_cube_inside,
             is_robot_static=is_robot_static,
             is_cube_static=is_cube_static,
@@ -838,40 +797,6 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             return reward
 
         if info["is_cube_inside"] and info["is_bowl_upwards"]:
-            reward = 5.0
-
-            # ungrasp reward
-            if self.ungrasp_sparse_reward and (not info["is_cube_grasped"]):
-                reward += 1.0 * self.ungrasp_reward_scale
-            elif not self.ungrasp_sparse_reward:
-                max_gripper_width = self.agent.robot.get_qlimits()[-2:, -1].sum()
-                gripper_width = self.agent.robot.get_qpos()[-2:].sum()
-                reward += gripper_width / max_gripper_width * self.ungrasp_reward_scale
-
-            # lift gripper reward (to tcp_height_thres + 0.01)
-            if self.success_needs_high_gripper:
-                reward += 1 - np.tanh(5 * abs(self.tcp.pose.p[2] - self.tcp_height_thres - 1e-2))
-        else:
-            tcp_to_cube_dist = info["tcp_to_cube_dist"]
-            reaching_reward = 1 - np.tanh(5 * tcp_to_cube_dist)
-            reward += reaching_reward
-
-            if info["is_cube_grasped"]:
-                reward += 1.0
-                cube_to_goal_dist = info["cube_to_goal_dist"]
-                place_reward = 1 - np.tanh(5 * cube_to_goal_dist)
-                reward += place_reward
-
-        return reward
-
-    def compute_dense_reward_v3(self, info, **kwargs):
-        reward = 0.0
-
-        if info["success"]:
-            reward = 10.0
-            return reward
-
-        if info["is_cube_above"] and info["is_bowl_upwards"]:
             reward = 5.0
 
             # ungrasp reward
@@ -1281,8 +1206,6 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             return self.compute_staged_reward_v3(**kwargs)
         elif self._reward_mode == "dense_v2":
             return self.compute_dense_reward_v2(**kwargs)
-        elif self._reward_mode == "dense_v3":
-            return self.compute_dense_reward_v3(**kwargs)
         else:
             return super().get_reward(**kwargs)
 
