@@ -239,7 +239,83 @@
     <limit effort="20" lower="-6.283185307179586" upper="6.283185307179586" velocity="3.14"/>
     <dynamics damping="2" friction="1"/>
   </joint>
-  <link name="link_eef"/>
+  <link name="link_eef">
+    <visual>
+      <geometry>
+        <mesh filename="xarm_description/meshes/camera/realsense/visual/d435_with_tilt_cam_stand.STL"/>
+      </geometry>
+      <origin rpy="0 0 3.141592653589793" xyz="0 0 0"/>
+      <material name="Silver"/>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="xarm_description/meshes/camera/realsense/collision/d435_with_tilt_cam_stand.STL"/>
+      </geometry>
+      <origin rpy="0 0 3.141592653589793" xyz="0 0 0"/>
+    </collision>
+  </link>
+  <link name="camera_link"/>
+  <link name="camera_depth_frame"/>
+  <link name="camera_depth_optical_frame"/>
+  <link name="camera_color_frame"/>
+  <link name="camera_color_optical_frame"/>
+  <link name="camera_left_ir_frame"/>
+  <link name="camera_left_ir_optical_frame"/>
+  <link name="camera_right_ir_frame"/>
+  <link name="camera_right_ir_optical_frame"/>
+  <!-- Compute origin xyz
+    x, z = 0.06746, 0.0237
+    r = np.sqrt(x**2 + z**2)
+    dx, dz = 0.0014, -0.0112  # from blender model
+    theta = np.arctan2(z, x)
+    new_x = r * np.cos(theta + np.deg2rad(15)) + dx
+    new_z = r * np.sin(theta + np.deg2rad(15)) + dz
+  -->
+  <joint name="camera_link_joint" type="fixed">
+    <parent link="link_eef"/>
+    <child link="camera_link"/>
+    <origin rpy="3.141592653589793 -1.832595714594046 3.141592653589793" xyz="-0.06042734 0.0175 0.02915237"/>
+  </joint>
+  <joint name="camera_depth_joint" type="fixed">
+    <parent link="camera_link"/>
+    <child link="camera_depth_frame"/>
+    <origin rpy="0 0 0" xyz="0 0 0"/>
+  </joint>
+  <joint name="camera_depth_optical_joint" type="fixed">
+    <parent link="camera_depth_frame"/>
+    <child link="camera_depth_optical_frame"/>
+    <origin rpy="-1.5707963267948966 0 -1.5707963267948966" xyz="0 0 0"/>
+  </joint>
+  <joint name="camera_color_joint" type="fixed">
+    <parent link="camera_link"/>
+    <child link="camera_color_frame"/>
+    <origin rpy="0 0 0" xyz="0 0.015 0"/>
+  </joint>
+  <joint name="camera_color_optical_joint" type="fixed">
+    <parent link="camera_color_frame"/>
+    <child link="camera_color_optical_frame"/>
+    <origin rpy="-1.5707963267948966 0 -1.5707963267948966" xyz="0 0 0"/>
+  </joint>
+  <joint name="camera_left_ir_joint" type="fixed">
+    <parent link="camera_link"/>
+    <child link="camera_left_ir_frame"/>
+    <origin rpy="0 0 0" xyz="0 0 0"/>
+  </joint>
+  <joint name="camera_left_ir_optical_joint" type="fixed">
+    <parent link="camera_left_ir_frame"/>
+    <child link="camera_left_ir_optical_frame"/>
+    <origin rpy="-1.5707963267948966 0 -1.5707963267948966" xyz="0 0 0"/>
+  </joint>
+  <joint name="camera_right_ir_joint" type="fixed">
+    <parent link="camera_link"/>
+    <child link="camera_right_ir_frame"/>
+    <origin rpy="0 0 0" xyz="0 -0.050 0"/>
+  </joint>
+  <joint name="camera_right_ir_optical_joint" type="fixed">
+    <parent link="camera_right_ir_frame"/>
+    <child link="camera_right_ir_optical_frame"/>
+    <origin rpy="-1.5707963267948966 0 -1.5707963267948966" xyz="0 0 0"/>
+  </joint>
   <joint name="joint_eef" type="fixed">
     <origin rpy="0 0 0" xyz="0 0 0"/>
     <parent link="link7"/>

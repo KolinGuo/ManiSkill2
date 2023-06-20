@@ -7,7 +7,7 @@ from sapien.core import Pose
 from mani_skill2.agents.base_agent import BaseAgent
 from mani_skill2.agents.robots.panda import Panda, FloatingPanda
 from mani_skill2.agents.robots.xmate3 import Xmate3Robotiq
-from mani_skill2.agents.robots.xarm import XArm7
+from mani_skill2.agents.robots.xarm import XArm7, XArm7D435
 from mani_skill2.envs.sapien_env import BaseEnv
 from mani_skill2.sensors.camera import CameraConfig
 from mani_skill2.utils.sapien_utils import (
@@ -20,8 +20,9 @@ from mani_skill2.utils.sapien_utils import (
 
 class StationaryManipulationEnv(BaseEnv):
     SUPPORTED_ROBOTS = {"panda": Panda, "floating_panda": FloatingPanda,
-                        "xmate3_robotiq": Xmate3Robotiq, "xarm7": XArm7}
-    agent: Union[Panda, FloatingPanda,  Xmate3Robotiq, XArm7]
+                        "xmate3_robotiq": Xmate3Robotiq,
+                        "xarm7": XArm7, "xarm7_d435": XArm7D435}
+    agent: Union[Panda, FloatingPanda, Xmate3Robotiq, XArm7, XArm7D435]
 
     def __init__(self, *args, robot="panda", robot_init_qpos_noise=0.02, **kwargs):
         self.robot_uid = robot
@@ -106,7 +107,7 @@ class StationaryManipulationEnv(BaseEnv):
             )
             self.agent.reset(qpos)
             self.agent.robot.set_pose(Pose([-0.562, 0, 0]))
-        elif self.robot_uid == 'xarm7':
+        elif self.robot_uid in ['xarm7', 'xarm7_d435']:
             qpos = np.array(
                 [0, 0, 0, np.pi / 3, 0, np.pi / 3, -np.pi / 2, 0.0446430, 0.0446430]
             )
@@ -138,7 +139,7 @@ class StationaryManipulationEnv(BaseEnv):
             )
             self.agent.reset(qpos)
             self.agent.robot.set_pose(Pose([-0.562, 0, 0]))
-        elif self.robot_uid == 'xarm7':
+        elif self.robot_uid in ['xarm7', 'xarm7_d435']:
             qpos = np.array(
                 [0, 0, 0, 0, 0, 0, 0, 0.0446430, 0.0446430]
             )

@@ -68,3 +68,11 @@ class XArm7(XArm):
     @classmethod
     def get_default_config(cls):
         return defaults.XArm7DefaultConfig()
+
+
+class XArm7D435(XArm):
+    _config: defaults.XArm7D435DefaultConfig
+
+    @classmethod
+    def get_default_config(cls):
+        return defaults.XArm7D435DefaultConfig()

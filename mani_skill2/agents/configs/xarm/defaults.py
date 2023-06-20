@@ -111,8 +111,8 @@ class XArmDefaultConfig:
     def cameras(self):
         return CameraConfig(
             uid="hand_camera",
-            p=[0.0464982, -0.0200011, 0.0360011],
-            q=[0, 0.70710678, 0, 0.70710678],
+            p=[-0.0464982, 0.0200011, 0.0360011],
+            q=[-0.70710678, 0, 0.70710678, 0],
             width=128,
             height=128,
             fov=1.57,
@@ -135,3 +135,32 @@ class XArm7DefaultConfig(XArmDefaultConfig):
             "joint6",
             "joint7",
         ]
+
+
+class XArm7D435DefaultConfig(XArmDefaultConfig):
+    def __init__(self) -> None:
+        super().__init__()
+        self.urdf_path = "{PACKAGE_ASSET_DIR}/descriptions/xarm7_with_gripper_reduced_dof_d435_v2.urdf"
+        self.arm_joint_names = [
+            "joint1",
+            "joint2",
+            "joint3",
+            "joint4",
+            "joint5",
+            "joint6",
+            "joint7",
+        ]
+
+    @property
+    def cameras(self):
+        return CameraConfig(
+            uid="hand_camera",
+            p=[0, 0, 0],
+            q=[1, 0, 0, 0],
+            width=128,
+            height=128,
+            fov=1.57,
+            near=0.01,
+            far=10,
+            actor_uid="camera_link",
+        )
