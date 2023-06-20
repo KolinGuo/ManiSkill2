@@ -125,7 +125,7 @@ class XArmDefaultConfig:
 class XArm7DefaultConfig(XArmDefaultConfig):
     def __init__(self) -> None:
         super().__init__()
-        self.urdf_path = "{PACKAGE_ASSET_DIR}/descriptions/xarm7_with_gripper_reduced_dof_v2.urdf"
+        self.urdf_path = "{PACKAGE_ASSET_DIR}/descriptions/xarm7_textured_with_gripper_reduced_dof_v2.urdf"
         self.arm_joint_names = [
             "joint1",
             "joint2",
@@ -140,7 +140,7 @@ class XArm7DefaultConfig(XArmDefaultConfig):
 class XArm7D435DefaultConfig(XArmDefaultConfig):
     def __init__(self) -> None:
         super().__init__()
-        self.urdf_path = "{PACKAGE_ASSET_DIR}/descriptions/xarm7_with_gripper_reduced_dof_d435_v2.urdf"
+        self.urdf_path = "{PACKAGE_ASSET_DIR}/descriptions/xarm7_textured_with_gripper_reduced_dof_d435_v2.urdf"
         self.arm_joint_names = [
             "joint1",
             "joint2",
