@@ -1,4 +1,5 @@
 from copy import deepcopy
+import numpy as np
 
 from mani_skill2.agents.controllers import *
 from mani_skill2.sensors.camera import CameraConfig
@@ -157,9 +158,9 @@ class XArm7D435DefaultConfig(XArmDefaultConfig):
             uid="hand_camera",
             p=[0, 0, 0],
             q=[1, 0, 0, 0],
-            width=128,
-            height=128,
-            fov=1.57,
+            width=848,
+            height=480,
+            fov=np.deg2rad(43.5),
             near=0.01,
             far=10,
             actor_uid="camera_link",

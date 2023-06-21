@@ -1369,8 +1369,12 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             #pose = look_at([0.4, -1.1, 0.5], [0.4, 0.2, -0.2])
             # SAPIEN camera pose is forward(x), left(y) and up(z)
             # T @ np.array([[0,-1,0,0],[0,0,-1,0],[1,0,0,0],[0,0,0,1]])
-            pose = Pose([0.582913, -0.84103, 0.447668],
-                        [0.663717, -0.156798, 0.153559, 0.715062])
+            # Tb_b2c_20230512_FAH_front.npy
+            #pose = Pose([0.582913, -0.84103, 0.447668],
+            #            [0.663717, -0.156798, 0.153559, 0.715062])
+            # Tb_b2c_20230525_CSE4144_front.npy
+            pose = Pose([0.270408, -1.13308, 0.376658],
+                        [0.69311, -0.0656008, 0.0722545, 0.714195])
             camera_configs.append(
                 CameraConfig("render_camera", pose.p, pose.q, 848, 480,
                              np.deg2rad(43.5), 0.01, 10)
