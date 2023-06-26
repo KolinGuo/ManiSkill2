@@ -1373,8 +1373,11 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             #pose = Pose([0.582913, -0.84103, 0.447668],
             #            [0.663717, -0.156798, 0.153559, 0.715062])
             # Tb_b2c_20230525_CSE4144_front.npy
-            pose = Pose([0.270408, -1.13308, 0.376658],
-                        [0.69311, -0.0656008, 0.0722545, 0.714195])
+            #pose = Pose([0.270408, -1.13308, 0.376658],
+            #            [0.69311, -0.0656008, 0.0722545, 0.714195])
+            # Tb_b2c_20230623_CSE4144_front.npy
+            pose = Pose([0.252313, -1.13436, 0.368176],
+                        [0.693578, -0.0652475, 0.0552481, 0.71529])
             camera_configs.append(
                 CameraConfig("render_camera", pose.p, pose.q, 848, 480,
                              np.deg2rad(43.5), 0.01, 10)
