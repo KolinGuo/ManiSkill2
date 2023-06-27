@@ -86,7 +86,6 @@ def get_axis_aligned_bbox_for_cube(cube_actor):
               reward_mode="dense_v2",
               robot="xarm7_d435", real_setup=True, image_obs_mode="sideview",
               no_static_checks=True, success_needs_ungrasp=True,
-              success_needs_high_gripper=True,
               success_cube_not_strictly_inside=True,
               goal_height_delta=0.08,
               check_collision_during_init=False)
