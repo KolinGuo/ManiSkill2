@@ -283,7 +283,9 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self._image_obs_mode = image_obs_mode
         self.image_obs_shape = image_obs_shape
 
-        super().__init__(*args, **kwargs)
+        from real_robot.envs.base_env import XArmBaseEnv
+        if not isinstance(self, XArmBaseEnv):
+            super().__init__(*args, **kwargs)
 
     def _check_assets(self):
         models_dir = self.asset_root / "models"

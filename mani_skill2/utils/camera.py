@@ -11,22 +11,28 @@ def resize_obs_images(obs: OrderedDict, new_shape,
     for cam_name in obs["camera_param"]:
         # Update intrinsics
         K = obs["camera_param"][cam_name]["intrinsic_cv"]
-        old_height, old_width = obs["image"][cam_name]["Color"].shape[:2]
+
+        camera_capture = obs["image"][cam_name]
+        if "Color" in camera_capture:
+            old_height, old_width = camera_capture["Color"].shape[:2]
+        else:
+            old_height, old_width = camera_capture["rgb"].shape[:2]
+
         resize_trans = np.array([[new_width / old_width, 0, 0],
                                  [0, new_height / old_height, 0],
                                  [0, 0, 1]], dtype=K.dtype)
         obs["camera_param"][cam_name]["intrinsic_cv"] = resize_trans @ K
 
         # Resize images
-        for key in obs["image"][cam_name]:
-            if key in ["Color", "Position"]:
-                obs["image"][cam_name][key] = cv2.resize(
-                    obs["image"][cam_name][key],
+        for key in camera_capture:
+            if key in ["Color", "Position", "rgb", "depth"]:
+                camera_capture[key] = cv2.resize(
+                    camera_capture[key],
                     new_shape, interpolation=interpolation
                 )
             elif key == "Segmentation":
-                obs["image"][cam_name][key] = cv2.resize(
-                    obs["image"][cam_name][key].astype(np.uint16),
+                camera_capture[key] = cv2.resize(
+                    camera_capture[key].astype(np.uint16),
                     new_shape, interpolation=interpolation
                 ).astype(np.uint32)
             else:
