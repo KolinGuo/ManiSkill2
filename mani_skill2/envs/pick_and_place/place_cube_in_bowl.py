@@ -191,6 +191,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                  robot_base_at_world_frame=False,
                  remove_obs_extra=[],
                  save_trajectory=False,
+                 use_random_camera_pose=False,
                  **kwargs):
         if asset_root is None:
             asset_root = self.DEFAULT_ASSET_ROOT
@@ -244,6 +245,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self.goal_height_delta = goal_height_delta
         self.cube_above_delta = cube_above_delta
         self.tcp_height_thres = tcp_height_thres
+        self.use_random_camera_pose = use_random_camera_pose
 
         self.pmodel = None
 
@@ -1233,6 +1235,15 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         """When use_grounded_sam, all info keys without sam/ prefix is GT
         except for rewards during logging (rewards is sam_reward), gt_reward is GT
         """
+        if self.use_random_camera_pose:
+            orig_pose = self._render_cameras["render_camera"].camera_cfg.pose
+            delta_pose = Pose(
+                p=np.random.uniform(-0.1, 0.1, size=3),
+                q=euler2quat(*np.deg2rad(np.random.uniform(-10, 10, size=3)))
+            )
+            self._render_cameras["render_camera"].camera.set_pose(
+                orig_pose * delta_pose
+            )
         obs, reward, done, info = super().step(action)
 
         if self.use_grounded_sam:
