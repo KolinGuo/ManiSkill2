@@ -561,7 +561,28 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                 raise NotImplementedError(self.robot_uid)
 
     def _configure_cameras(self):
-        super()._configure_cameras()
+        self._camera_cfgs = OrderedDict()
+        self._camera_cfgs.update(parse_camera_cfgs(self._register_cameras()))
+
+        self._agent_camera_cfgs = OrderedDict()
+        if self._agent_cfg is not None and "hand" in self._image_obs_mode:
+            self._agent_camera_cfgs = parse_camera_cfgs(self._agent_cfg.cameras)
+            self._camera_cfgs.update(self._agent_camera_cfgs)
+
+        camera_cfgs = OrderedDict()
+        if self._image_obs_mode == "hand_base":
+            camera_cfgs["base_camera"] = self._camera_cfgs["base_camera"]
+            camera_cfgs["hand_camera"] = self._camera_cfgs["hand_camera"]
+        elif self._image_obs_mode == "sideview":
+            camera_cfgs["side_camera_1"] = self._camera_cfgs["front_camera"]
+            camera_cfgs["side_camera_2"] = self._camera_cfgs["right_camera"]
+        elif self._image_obs_mode == "hand_front":
+            camera_cfgs["front_camera"] = self._camera_cfgs["front_camera"]
+            camera_cfgs["hand_camera"] = self._camera_cfgs["hand_camera"]
+        else:
+            raise ValueError(f"Unknown image_obs_mode: {self._image_obs_mode}")
+
+        self._camera_cfgs = camera_cfgs
 
         # Set robot base frame at world frame, change camera pose accordingly
         if self.robot_base_at_world_frame:
@@ -1060,6 +1081,13 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
             self.recent_sam_obs = sam_obs
 
+            # TODO: double check, copied from get_images_sideview()
+            # Save gt mask for calculate SAM pred_mask iou, [n_cams, H, W]
+            self._recent_gt_actor_mask = np.stack(
+                [d["Segmentation"][..., 1] for d in obs["image"].values()],
+                axis=0
+            )
+
         if self._obs_mode == "image" and self._image_obs_mode != "hand_base":
             # Remove Segmentation
             for cam_name in obs["image"]:
@@ -1268,67 +1296,6 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         return obs, reward, done, info
 
     # Add multi-view cameras
-    def update_render_and_take_picture_sideview(self):
-        """Update render and take pictures from all cameras (non-blocking)."""
-        if self._renderer_type == "client":
-            # NOTE: not compatible with StereoDepthCamera
-            cameras = [x.camera for x in self._render_cameras.values()]
-            self._scene._update_render_and_take_pictures(cameras)
-        else:
-            self.update_render()
-            for cam in self._render_cameras.values():
-                cam.take_picture()
-
-    def get_images_sideview(self) -> Dict[str, Dict[str, np.ndarray]]:
-        """Get (raw) images from all cameras (blocking)."""
-        images = OrderedDict()
-        for name, cam in self._render_cameras.items():
-            images[name] = cam.get_images()
-
-        # Save gt mask for calculate SAM pred_mask iou, [n_cams, H, W]
-        self._recent_gt_actor_mask = np.stack(
-            [d["Segmentation"][..., 1] for d in images.values()], axis=0
-        )
-        return images
-
-    def get_camera_params_sideview(self) -> Dict[str, Dict[str, np.ndarray]]:
-        """Get camera parameters from all cameras."""
-        params = OrderedDict()
-        for name, cam in self._render_cameras.items():
-            params[name] = cam.get_params()
-        return params
-
-    def _get_obs_images(self) -> OrderedDict:
-        if self._image_obs_mode == "hand_base":
-            return super()._get_obs_images()
-
-        if self._image_obs_mode == "sideview":
-            self.update_render_and_take_picture_sideview()
-            return OrderedDict(
-                agent=self._get_obs_agent(),
-                extra=self._get_obs_extra(),
-                camera_param=self.get_camera_params_sideview(),
-                image=self.get_images_sideview(),
-            )
-        elif self._image_obs_mode == "hand_front":
-            self.update_render_and_take_picture_sideview()
-            obs = OrderedDict(
-                agent=self._get_obs_agent(),
-                extra=self._get_obs_extra(),
-                camera_param=self.get_camera_params_sideview(),
-                image=self.get_images_sideview(),
-            )
-
-            self.update_render()
-            self.take_picture()
-            obs["camera_param"]["hand_camera"] = self._cameras["hand_camera"].get_params()
-            obs["image"]["hand_camera"] = self._cameras["hand_camera"].get_images()
-            return obs
-        else:
-            raise NotImplementedError(
-                f'image_obs_mode "{self._image_obs_mode}" not implemented'
-            )
-
     def _setup_cameras(self):
         super()._setup_cameras()
 
@@ -1355,19 +1322,20 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         #             camera_cfg, self._scene, self._renderer_type
         #         )
 
-    def _register_render_cameras(self):
-        camera_configs = []
+    def _register_cameras(self):
+        """Register (non-agent) cameras for environment observation."""
+        camera_configs = [super()._register_cameras()]
         if not self.real_setup:
             pose1 = look_at([0.4, 0.4, 0.4], [0.0, 0.0, 0.2])
             pose2 = look_at([0.4, -0.4, 0.4], [0.0, 0.0, 0.2])
             camera_configs.extend([
-                CameraConfig(f"render_camera_1",
+                CameraConfig(f"base_camera_1",
                              pose1.p, pose1.q, 512, 512, 1, 0.01, 10),
-                CameraConfig(f"render_camera_2",
+                CameraConfig(f"base_camera_2",
                              pose2.p, pose2.q, 512, 512, 1, 0.01, 10),
             ])
         else:
-            #pose = look_at([0.4, -1.1, 0.5], [0.4, 0.2, -0.2])
+            # front_camera
             # SAPIEN camera pose is forward(x), left(y) and up(z)
             # T @ np.array([[0,-1,0,0],[0,0,-1,0],[1,0,0,0],[0,0,0,1]])
             # Tb_b2c_20230512_FAH_front.npy
@@ -1380,21 +1348,27 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             pose = Pose([0.252313, -1.13436, 0.368176],
                         [0.693578, -0.0652475, 0.0552481, 0.71529])
             camera_configs.append(
-                CameraConfig("render_camera", pose.p, pose.q, 848, 480,
+                CameraConfig("front_camera", pose.p, pose.q, 848, 480,
                              np.deg2rad(43.5), 0.01, 10)
             )
-            if self.two_real_cameras:
-                pose2 = look_at([1.2, -0.1, 0.5], [0.3, -0.1, 0])
-                camera_configs.append(
-                    CameraConfig("render_camera_2", pose2.p, pose2.q, 848, 480,
-                                 np.deg2rad(43.5), 0.01, 10)
-                )
+            # right_camera
+            pose2 = look_at([1.2, -0.1, 0.5], [0.3, -0.1, 0])
+            camera_configs.append(
+                CameraConfig("right_camera", pose2.p, pose2.q, 848, 480,
+                                np.deg2rad(43.5), 0.01, 10)
+            )
 
         # Add Segmentation
         for camera_cfg in camera_configs:
             camera_cfg.texture_names += ("Segmentation",)
 
         return camera_configs
+
+    def _register_render_cameras(self):
+        """Register cameras for rendering."""
+        # Remove base_camera from StationaryManipulationEnv
+        # When running RL policy, render with mode="cameras"
+        return []
 
     def _clear(self):
         super()._clear()
@@ -1412,9 +1386,10 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                            (in front of the far plane of camera frustum)
         """
         if camera_params_dict is None or camera_captures_dict is None:
-            self.update_render_and_take_picture_sideview()
-            camera_params_dict = self.get_camera_params_sideview()
-            camera_captures_dict = self.get_images_sideview()
+            self.update_render()
+            self.take_picture()
+            camera_params_dict = self.get_camera_params()
+            camera_captures_dict = self.get_images()
 
         rgb_images = []
         xyz_images = []  # xyz_images in world coordinates
