@@ -71,20 +71,20 @@ def get_axis_aligned_bbox_for_cube(cube_actor):
 @register_env("PlaceCubeInBowlXArm-v5", max_episode_steps=50, extra_state_obs=True,
               fix_init_bowl_pos=True, dist_cube_bowl=0.15,
               reward_mode="dense_v2",
-              robot="xarm7_d435", real_setup=True, image_obs_mode="sideview",
+              robot="xarm7_d435", real_setup=True, image_obs_mode="hand_front",
               no_static_checks=True, success_needs_ungrasp=True,
               check_collision_during_init=False)
 @register_env("PlaceCubeInBowlXArm-v6", max_episode_steps=50, extra_state_obs=True,
               fix_init_bowl_pos=True, dist_cube_bowl=0.15,
               reward_mode="dense_v2",
-              robot="xarm7_d435", real_setup=True, image_obs_mode="sideview",
+              robot="xarm7_d435", real_setup=True, image_obs_mode="hand_front",
               no_static_checks=True, success_needs_ungrasp=True,
               success_needs_high_gripper=True,
               check_collision_during_init=False)
 @register_env("PlaceCubeInBowlXArm-v7", max_episode_steps=50, extra_state_obs=True,
               fix_init_bowl_pos=True, dist_cube_bowl=0.15,
               reward_mode="dense_v2",
-              robot="xarm7_d435", real_setup=True, image_obs_mode="sideview",
+              robot="xarm7_d435", real_setup=True, image_obs_mode="hand_front",
               no_static_checks=True, success_needs_ungrasp=True,
               success_cube_not_strictly_inside=True,
               goal_height_delta=0.08,
@@ -137,21 +137,22 @@ def get_axis_aligned_bbox_for_cube(cube_actor):
               max_episode_steps=50, extra_state_obs=True,
               fix_init_bowl_pos=True, dist_cube_bowl=0.15,
               reward_mode="sparse_staged_v3", stage_obs=True,
-              robot="xarm7_d435", real_setup=True, image_obs_mode="sideview",
+              robot="xarm7_d435", real_setup=True, image_obs_mode="hand_front",
               no_static_checks=True, stage2_check_stage1=False,
               success_needs_ungrasp=True, check_collision_during_init=False)
 @register_env("PlaceCubeInBowlSAMStagedXArm-v8",
               max_episode_steps=50, extra_state_obs=True,
               fix_init_bowl_pos=True, dist_cube_bowl=0.15,
               reward_mode="grounded_sam_sparse_staged_v3", stage_obs=True,
-              robot="xarm7_d435", real_setup=True, image_obs_mode="sideview",
+              robot="xarm7_d435", real_setup=True, image_obs_mode="hand_front",
               no_static_checks=True, stage2_check_stage1=False,
               success_needs_ungrasp=True, check_collision_during_init=False)
 class PlaceCubeInBowlEnv(StationaryManipulationEnv):
     DEFAULT_ASSET_ROOT = "{ASSET_DIR}/mani_skill2_ycb"
     DEFAULT_MODEL_JSON = "info_pick_v0.json"
 
-    SUPPORTED_IMAGE_OBS_MODES = ("hand_base", "sideview", "hand_front")
+    SUPPORTED_IMAGE_OBS_MODES = ("hand_base", "sideview",
+                                 "front", "front_right", "hand_front")
     SUPPORTED_REWARD_MODES = ("dense", "dense_v2", "sparse", "sparse_staged",
                               "sparse_staged_v2", "sparse_staged_v3",
                               "grounded_sam_sparse_staged_v3")
@@ -187,7 +188,6 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                  ungrasp_reward_scale=1.0,
                  gsam_track_cfg={},
                  real_setup=False,
-                 two_real_cameras=False,
                  robot_base_at_world_frame=False,
                  remove_obs_extra=[],
                  save_trajectory=False,
@@ -248,7 +248,6 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self.pmodel = None
 
         self.real_setup = real_setup
-        self.two_real_cameras = two_real_cameras
         self.robot_base_at_world_frame = robot_base_at_world_frame
         self.remove_obs_extra = remove_obs_extra
 
@@ -279,7 +278,9 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         if image_obs_mode is None:
             image_obs_mode = self.SUPPORTED_IMAGE_OBS_MODES[0]
         if image_obs_mode not in self.SUPPORTED_IMAGE_OBS_MODES:
-            raise NotImplementedError("Unsupported image obs mode: {}".format(image_obs_mode))
+            raise NotImplementedError(
+                f"Unsupported image obs mode: {image_obs_mode}"
+            )
         self._image_obs_mode = image_obs_mode
         self.image_obs_shape = image_obs_shape
 
@@ -561,27 +562,30 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                 raise NotImplementedError(self.robot_uid)
 
     def _configure_cameras(self):
-        self._camera_cfgs = OrderedDict()
-        self._camera_cfgs.update(parse_camera_cfgs(self._register_cameras()))
+        super()._configure_cameras()
 
-        self._agent_camera_cfgs = OrderedDict()
-        if self._agent_cfg is not None and "hand" in self._image_obs_mode:
-            self._agent_camera_cfgs = parse_camera_cfgs(self._agent_cfg.cameras)
-            self._camera_cfgs.update(self._agent_camera_cfgs)
-
+        # Select camera_cfgs based on image_obs_mode
         camera_cfgs = OrderedDict()
         if self._image_obs_mode == "hand_base":
             camera_cfgs["base_camera"] = self._camera_cfgs["base_camera"]
             camera_cfgs["hand_camera"] = self._camera_cfgs["hand_camera"]
         elif self._image_obs_mode == "sideview":
-            camera_cfgs["side_camera_1"] = self._camera_cfgs["front_camera"]
-            camera_cfgs["side_camera_2"] = self._camera_cfgs["right_camera"]
+            camera_cfgs["side_camera_1"] = self._camera_cfgs["side_camera_1"]
+            camera_cfgs["side_camera_2"] = self._camera_cfgs["side_camera_2"]
+        elif self._image_obs_mode == "front":
+            camera_cfgs["front_camera"] = self._camera_cfgs["front_camera"]
+        elif self._image_obs_mode == "front_right":
+            camera_cfgs["front_camera"] = self._camera_cfgs["front_camera"]
+            camera_cfgs["right_camera"] = self._camera_cfgs["right_camera"]
         elif self._image_obs_mode == "hand_front":
             camera_cfgs["front_camera"] = self._camera_cfgs["front_camera"]
             camera_cfgs["hand_camera"] = self._camera_cfgs["hand_camera"]
         else:
             raise ValueError(f"Unknown image_obs_mode: {self._image_obs_mode}")
 
+        # Add Segmentation for SAM IoU eval
+        for cfg in camera_cfgs.values():
+            cfg.texture_names += ("Segmentation",)
         self._camera_cfgs = camera_cfgs
 
         # Set robot base frame at world frame, change camera pose accordingly
@@ -1324,14 +1328,14 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
     def _register_cameras(self):
         """Register (non-agent) cameras for environment observation."""
-        camera_configs = [super()._register_cameras()]
+        camera_configs = [super()._register_cameras()]  # base_camera
         if not self.real_setup:
             pose1 = look_at([0.4, 0.4, 0.4], [0.0, 0.0, 0.2])
             pose2 = look_at([0.4, -0.4, 0.4], [0.0, 0.0, 0.2])
             camera_configs.extend([
-                CameraConfig(f"base_camera_1",
+                CameraConfig("side_camera_1",
                              pose1.p, pose1.q, 512, 512, 1, 0.01, 10),
-                CameraConfig(f"base_camera_2",
+                CameraConfig("side_camera_2",
                              pose2.p, pose2.q, 512, 512, 1, 0.01, 10),
             ])
         else:
@@ -1355,18 +1359,13 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             pose2 = look_at([1.2, -0.1, 0.5], [0.3, -0.1, 0])
             camera_configs.append(
                 CameraConfig("right_camera", pose2.p, pose2.q, 848, 480,
-                                np.deg2rad(43.5), 0.01, 10)
+                             np.deg2rad(43.5), 0.01, 10)
             )
-
-        # Add Segmentation
-        for camera_cfg in camera_configs:
-            camera_cfg.texture_names += ("Segmentation",)
-
         return camera_configs
 
     def _register_render_cameras(self):
         """Register cameras for rendering."""
-        # Remove base_camera from StationaryManipulationEnv
+        # Remove render_camera from StationaryManipulationEnv
         # When running RL policy, render with mode="cameras"
         return []
 
