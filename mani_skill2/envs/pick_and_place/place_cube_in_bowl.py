@@ -1,6 +1,5 @@
 import os
 import shutil
-import re
 from collections import OrderedDict, defaultdict
 from pathlib import Path
 from typing import Union, Dict, List, Tuple
@@ -16,11 +15,7 @@ from mani_skill2.utils.common import random_choice
 from mani_skill2.utils.io_utils import load_json
 from mani_skill2.utils.registration import register_env
 from mani_skill2.utils.sapien_utils import vectorize_pose, look_at
-from mani_skill2.sensors.camera import (
-    Camera,
-    CameraConfig,
-    parse_camera_cfgs,
-)
+from mani_skill2.sensors.camera import CameraConfig
 from mani_skill2.utils.geometry import (
     get_axis_aligned_bbox_for_actor,
     angle_between_vec
@@ -49,102 +44,87 @@ def get_axis_aligned_bbox_for_cube(cube_actor):
     return mins, maxs
 
 
-@register_env("PlaceCubeInBowl-v0", max_episode_steps=200)
-@register_env("PlaceCubeInBowl-v1", max_episode_steps=50, extra_state_obs=True)
-@register_env("PlaceCubeInBowl-v2", max_episode_steps=50, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15)
-@register_env("PlaceCubeInBowl-v3", max_episode_steps=50, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+@register_env("PlaceCubeInBowl-v0", max_episode_steps=200,
+              extra_state_obs=False,
+              dist_cube_bowl=0.2, fix_init_bowl_pos=False)
+@register_env("PlaceCubeInBowl-v1", max_episode_steps=50,
+              dist_cube_bowl=0.2, fix_init_bowl_pos=False)
+@register_env("PlaceCubeInBowl-v2", max_episode_steps=50)
+@register_env("PlaceCubeInBowl-v3", max_episode_steps=50,
               reward_mode="dense_v2",
               no_robot_static_checks=True, success_needs_ungrasp=True)
-@register_env("PlaceCubeInBowl-v4", max_episode_steps=50, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+@register_env("PlaceCubeInBowl-v4", max_episode_steps=50,
               reward_mode="dense_v2",
               no_static_checks=True, success_needs_ungrasp=True,
               check_collision_during_init=False)
-@register_env("PlaceCubeInBowl-v5", max_episode_steps=50, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+@register_env("PlaceCubeInBowl-v5", max_episode_steps=50,
               reward_mode="dense_v2",
               no_static_checks=True, success_needs_ungrasp=True,
               check_collision_during_init=False,
               robot_base_at_world_frame=True)
-@register_env("PlaceCubeInBowlXArm-v5", max_episode_steps=50, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+@register_env("PlaceCubeInBowlXArm-v5", max_episode_steps=50,
               reward_mode="dense_v2",
-              robot="xarm7_d435", real_setup=True, image_obs_mode="hand_front",
+              robot="xarm7_d435", image_obs_mode="hand_front",
               no_static_checks=True, success_needs_ungrasp=True,
               check_collision_during_init=False)
-@register_env("PlaceCubeInBowlXArm-v6", max_episode_steps=50, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+@register_env("PlaceCubeInBowlXArm-v6", max_episode_steps=50,
               reward_mode="dense_v2",
-              robot="xarm7_d435", real_setup=True, image_obs_mode="hand_front",
+              robot="xarm7_d435", image_obs_mode="hand_front",
               no_static_checks=True, success_needs_ungrasp=True,
               success_needs_high_gripper=True,
               check_collision_during_init=False)
-@register_env("PlaceCubeInBowlXArm-v7", max_episode_steps=50, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+@register_env("PlaceCubeInBowlXArm-v7", max_episode_steps=50,
               reward_mode="dense_v2",
-              robot="xarm7_d435", real_setup=True, image_obs_mode="hand_front",
+              robot="xarm7_d435", image_obs_mode="hand_front",
               no_static_checks=True, success_needs_ungrasp=True,
-              success_cube_not_strictly_inside=True,
-              goal_height_delta=0.08,
+              success_cube_above_only=True, goal_height_delta=0.08,
               check_collision_during_init=False)
 @register_env("PlaceCubeInBowlStaged-v2",
-              max_episode_steps=50, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+              max_episode_steps=50,
               reward_mode="sparse_staged", stage_obs=True)
 @register_env("PlaceCubeInBowlStagedNoStatic-v2",
-              max_episode_steps=50, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+              max_episode_steps=50,
               reward_mode="sparse_staged", stage_obs=True,
               no_static_checks=True)
 @register_env("PlaceCubeInBowlStaged-v3",
-              max_episode_steps=50, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+              max_episode_steps=50,
               reward_mode="sparse_staged_v2", stage_obs=True,
               no_robot_static_checks=True)
 @register_env("PlaceCubeInBowlStaged-v4",
-              max_episode_steps=50, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+              max_episode_steps=50,
               reward_mode="sparse_staged_v2", stage_obs=True,
               no_robot_static_checks=True, stage2_check_stage1=False)
-#@register_env("PlaceCubeInBowlStaged-v5",
-#              max_episode_steps=50, extra_state_obs=True,
-#              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
-#              reward_mode="sparse_staged_v2", stage_obs=True,
-#              no_robot_static_checks=True, stage2_check_stage1=False,
-#              no_reaching_reward_in_stage2=True)
+# @register_env("PlaceCubeInBowlStaged-v5",
+#               max_episode_steps=50,
+#               reward_mode="sparse_staged_v2", stage_obs=True,
+#               no_robot_static_checks=True, stage2_check_stage1=False,
+#               no_reaching_reward_in_stage2=True)
 @register_env("PlaceCubeInBowlStaged-v6",
-              max_episode_steps=50, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+              max_episode_steps=50,
               reward_mode="sparse_staged_v3", stage_obs=True,
               no_robot_static_checks=True, stage2_check_stage1=False,
               success_needs_ungrasp=True)
 @register_env("PlaceCubeInBowlStaged-v7",
-              max_episode_steps=50, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+              max_episode_steps=50,
               reward_mode="sparse_staged_v3", stage_obs=True,
               no_static_checks=True, stage2_check_stage1=False,
               success_needs_ungrasp=True, check_collision_during_init=False)
 @register_env("PlaceCubeInBowlStaged-v8",
-              max_episode_steps=50, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+              max_episode_steps=50,
               reward_mode="sparse_staged_v3", stage_obs=True,
               no_static_checks=True, stage2_check_stage1=False,
               success_needs_ungrasp=True, check_collision_during_init=False,
               robot_base_at_world_frame=True)
 @register_env("PlaceCubeInBowlStagedXArm-v8",
-              max_episode_steps=50, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+              max_episode_steps=50,
               reward_mode="sparse_staged_v3", stage_obs=True,
-              robot="xarm7_d435", real_setup=True, image_obs_mode="hand_front",
+              robot="xarm7_d435", image_obs_mode="hand_front",
               no_static_checks=True, stage2_check_stage1=False,
               success_needs_ungrasp=True, check_collision_during_init=False)
 @register_env("PlaceCubeInBowlSAMStagedXArm-v8",
-              max_episode_steps=50, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+              max_episode_steps=50,
               reward_mode="grounded_sam_sparse_staged_v3", stage_obs=True,
-              robot="xarm7_d435", real_setup=True, image_obs_mode="hand_front",
+              robot="xarm7_d435", image_obs_mode="hand_front",
               no_static_checks=True, stage2_check_stage1=False,
               success_needs_ungrasp=True, check_collision_during_init=False)
 class PlaceCubeInBowlEnv(StationaryManipulationEnv):
@@ -165,9 +145,9 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                  image_obs_shape=(128, 128),
                  obj_init_rot_z=True,
                  obj_init_rot=0,
-                 extra_state_obs=False,
-                 fix_init_bowl_pos=False,
-                 dist_cube_bowl=0.2,
+                 extra_state_obs=True,
+                 fix_init_bowl_pos=True,
+                 dist_cube_bowl=0.15,
                  cube_size_randomization=False,
                  bowl_size_randomization=False,
                  stage_obs=False,
@@ -179,7 +159,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                  no_reaching_reward_in_stage2=False,
                  success_needs_ungrasp=False,
                  success_needs_high_gripper=False,
-                 success_cube_not_strictly_inside=False,
+                 success_cube_above_only=False,
                  cube_inside_xy_bowl_bbox_scale=1.0,
                  goal_height_delta=0.05,
                  cube_above_delta=0.15,
@@ -187,7 +167,6 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                  ungrasp_sparse_reward=False,
                  ungrasp_reward_scale=1.0,
                  gsam_track_cfg={},
-                 real_setup=False,
                  robot_base_at_world_frame=False,
                  remove_obs_extra=[],
                  save_trajectory=False,
@@ -239,7 +218,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self.ungrasp_sparse_reward = ungrasp_sparse_reward
         self.ungrasp_reward_scale = ungrasp_reward_scale
         self.success_needs_high_gripper = success_needs_high_gripper
-        self.success_cube_not_strictly_inside = success_cube_not_strictly_inside
+        self.success_cube_above_only = success_cube_above_only
         self.cube_inside_xy_bowl_bbox_scale = cube_inside_xy_bowl_bbox_scale
         self.goal_height_delta = goal_height_delta
         self.cube_above_delta = cube_above_delta
@@ -247,13 +226,13 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
         self.pmodel = None
 
-        self.real_setup = real_setup
+        self.real_setup = "xarm7" in kwargs.get("robot", "panda")
         self.robot_base_at_world_frame = robot_base_at_world_frame
         self.remove_obs_extra = remove_obs_extra
 
         self._check_assets()
 
-        ### Grounded-SAM related ###
+        # Grounded-SAM related #
         self.use_grounded_sam = "grounded_sam" in kwargs.get(
             "reward_mode", self.SUPPORTED_REWARD_MODES[0]
         )
@@ -370,7 +349,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                 if model_scales is None:
                     model_scale = 1.0
                 else:
-                    model_scale = random_choice(model_scales, self._episode_rng)
+                    model_scale = random_choice(model_scales,
+                                                self._episode_rng)
             else:
                 model_scale = self._episode_rng.uniform(0.8, 1.2)
                 reconfigure = True
@@ -379,7 +359,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             reconfigure = True
 
         if self.cube_size_randomization:
-            self.cube_half_size = self.original_cube_half_size * self._episode_rng.uniform(0.7, 1.3)
+            scale_factor = self._episode_rng.uniform(0.7, 1.3)
+            self.cube_half_size = self.original_cube_half_size * scale_factor
             reconfigure = True
 
         model_info = self.model_db[self.model_id]
@@ -460,14 +441,15 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         """cubeA_ori is the angle from bowl to A"""
         self._initialize_bowl_actors()
 
-        if not self.real_setup:
-            if cube_ori is None:
-                # cube_ori = self._episode_rng.uniform(-np.pi/4, np.pi*3/4)
-                cube_ori = self._episode_rng.uniform(0, 2 * np.pi)
-            dist_cube_bowl = self.dist_cube_bowl
-        else:
+        if self.real_setup:
             dist_cube_bowl = self._episode_rng.uniform(0.15, 0.2)
-            cube_ori = self._episode_rng.uniform(np.pi, 2 * np.pi)
+            if cube_ori is None:
+                cube_ori = self._episode_rng.uniform(np.pi, 2 * np.pi)
+        else:
+            dist_cube_bowl = self.dist_cube_bowl
+            if cube_ori is None:
+                cube_ori = self._episode_rng.uniform(0, 2 * np.pi)
+
         cube_xy = self.bowl.pose.p[:2] + [np.cos(cube_ori) * dist_cube_bowl,
                                           np.sin(cube_ori) * dist_cube_bowl]
 
@@ -557,7 +539,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         # Set robot base frame at world frame
         if self.robot_base_at_world_frame:
             if self.robot_uid == "panda":
-                self.world_frame_delta_pos = np.array([-0.615, 0, 0], dtype=np.float32)
+                self.world_frame_delta_pos = np.array([-0.615, 0, 0],
+                                                      dtype=np.float32)
             else:
                 raise NotImplementedError(self.robot_uid)
 
@@ -671,22 +654,24 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         if not np.isclose(self.cube_inside_xy_bowl_bbox_scale, 1.0):
             bowl_bbox_size = bowl_maxs - bowl_mins
             bowl_bbox_size[-1] = 0.0
-            bowl_bbox_delta = bowl_bbox_size * (1 - self.cube_inside_xy_bowl_bbox_scale) / 2.0
+            bowl_bbox_delta = (bowl_bbox_size / 2.0
+                               * (1 - self.cube_inside_xy_bowl_bbox_scale))
             bowl_mins += bowl_bbox_delta
             bowl_maxs -= bowl_bbox_delta
 
         # For xy axes, cube need to be inside bowl
         # For z axis, cube_z_max can be greater than bowl_z_max
         #   by its half_length
+        if not self.success_cube_above_only:
+            z_delta = self.cube_half_size.max()
+        else:
+            z_delta = self.cube_above_delta
         cube_inside = (
             bowl_mins[0] <= cube_mins[0] and cube_maxs[0] <= bowl_maxs[0] and
             bowl_mins[1] <= cube_mins[1] and cube_maxs[1] <= bowl_maxs[1] and
-            bowl_mins[2] <= cube_mins[2]
+            bowl_mins[2] <= cube_mins[2] and
+            cube_maxs[2] <= bowl_maxs[2] + z_delta
         )
-        if not self.success_cube_not_strictly_inside:
-            cube_inside = cube_inside and cube_maxs[2] <= bowl_maxs[2] + self.cube_half_size.max()
-        else:
-            cube_inside = cube_inside and cube_maxs[2] <= bowl_maxs[2] + self.cube_above_delta
 
         return cube_inside
 
@@ -734,7 +719,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                                                  max_v=0.1, max_ang_v=0.2)
         z_axis_world = np.array([0, 0, 1])
         bowl_up_axis = self.bowl.get_pose().to_transformation_matrix()[:3, :3]\
-                     @ z_axis_world
+                       @ z_axis_world
         is_bowl_upwards = abs(angle_between_vec(bowl_up_axis,
                                                 z_axis_world)) < 0.1*np.pi
         is_cube_grasped = self.agent.check_grasp(self.cube)
@@ -835,7 +820,9 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
             # lift gripper reward (to tcp_height_thres + 0.01)
             if self.success_needs_high_gripper:
-                reward += 1 - np.tanh(5 * abs(self.tcp.pose.p[2] - self.tcp_height_thres - 1e-2))
+                reward += 1 - np.tanh(5 * abs(
+                    self.tcp.pose.p[2] - self.tcp_height_thres - 1e-2
+                ))
         else:
             tcp_to_cube_dist = info["tcp_to_cube_dist"]
             reaching_reward = 1 - np.tanh(5 * tcp_to_cube_dist)
@@ -908,7 +895,9 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
             # lift gripper reward (to tcp_height_thres + 0.01)
             if self.success_needs_high_gripper:
-                reward += 1 - np.tanh(5 * abs(self.tcp.pose.p[2] - self.tcp_height_thres - 1e-2))
+                reward += 1 - np.tanh(5 * abs(
+                    self.tcp.pose.p[2] - self.tcp_height_thres - 1e-2
+                ))
         else:
             reaching_reward = 1 - np.tanh(5 * tcp_to_cube_dist)
             reward += reaching_reward
@@ -1011,7 +1000,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         return ret_pts_lst
 
     def get_obs(self) -> OrderedDict:
-        """Store following observation to self.recent_sam_obs if using grounded_sam
+        """Wrapper for get_obs(). If using grounded_sam,
+        store following observation to self.recent_sam_obs.
         :return sam_rgb_images: a [n_cams, 512, 512, 3] np.uint8 np.ndarray
         :return sam_xyz_images: a [n_cams, 512, 512, 3] np.float32 np.ndarray
                                 per-pixel xyz coordinates in world frame
@@ -1213,7 +1203,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             )
 
             if self.success_needs_high_gripper:
-                sam_eval_dict["success"] = sam_eval_dict["success"] and is_gripper_high_enough
+                sam_eval_dict["success"] = (sam_eval_dict["success"]
+                                            and is_gripper_high_enough)
 
             if "sparse_staged" in self._reward_mode:
                 self.sam_current_stage = self.get_current_stage(
@@ -1300,32 +1291,6 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         return obs, reward, done, info
 
     # Add multi-view cameras
-    def _setup_cameras(self):
-        super()._setup_cameras()
-
-        # poses = []
-        # if not self.real_setup:
-        #     poses.append(look_at([0.4, 0.4, 0.4], [0.0, 0.0, 0.2]))
-        #     poses.append(look_at([0.4, -0.4, 0.4], [0.0, 0.0, 0.2]))
-        # else:
-        #     poses.append(look_at([0.4, -1.1, 0.5], [0.4, 0.2, -0.2]))
-
-        # camera_configs = []
-        # for i, pose in enumerate(poses):
-        #     camera_cfg = CameraConfig(f"sideview_camera_{i}",
-        #                               pose.p, pose.q, 512, 512, 1, 0.01, 10)
-        #     camera_cfg.texture_names += ("Segmentation",)
-        #     camera_configs.append(camera_cfg)
-
-        # self._sideview_camera_cfgs = parse_camera_cfgs(camera_configs)
-
-        # self._sideview_cameras = OrderedDict()
-        # if self._renderer_type != "client":
-        #     for uid, camera_cfg in self._sideview_camera_cfgs.items():
-        #         self._sideview_cameras[uid] = Camera(
-        #             camera_cfg, self._scene, self._renderer_type
-        #         )
-
     def _register_cameras(self):
         """Register (non-agent) cameras for environment observation."""
         camera_configs = [super()._register_cameras()]  # base_camera
@@ -1369,10 +1334,6 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         # When running RL policy, render with mode="cameras"
         return []
 
-    def _clear(self):
-        super()._clear()
-        # self._sideview_cameras = OrderedDict()
-
     def _render_rgb_pcd_images(
         self, camera_params_dict=None, camera_captures_dict=None
     ) -> Tuple[List[np.ndarray], List[np.ndarray], List[np.ndarray]]:
@@ -1414,10 +1375,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         return rgb_images, xyz_images, xyz_masks
 
 
-@register_env("PlaceCubeInBowlEasy-v0", max_episode_steps=20, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15)
-@register_env("PlaceCubeInBowlEasy-v1", max_episode_steps=20, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+@register_env("PlaceCubeInBowlEasy-v0", max_episode_steps=20)
+@register_env("PlaceCubeInBowlEasy-v1", max_episode_steps=20,
               no_static_checks=True)
 class PlaceCubeInBowlEasyEnv(PlaceCubeInBowlEnv):
     """Environment where robot gripper starts at grasping cube position"""
