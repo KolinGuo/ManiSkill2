@@ -814,8 +814,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             # Render observation for grounded_sam_track
             kwargs = {}
             # Already rendered grounded_sam image views
-            if (self._obs_mode == "image"
-                    and self._image_obs_mode != "hand_base"):
+            if self._obs_mode == "image":
                 kwargs["camera_params_dict"] = obs["camera_param"]
                 kwargs["camera_captures_dict"] = obs["image"]
 
@@ -871,7 +870,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                 axis=0
             )
 
-        if self._obs_mode == "image" and self._image_obs_mode != "hand_base":
+        if self._obs_mode == "image":
             # Remove Segmentation
             for cam_name in obs["image"]:
                 obs["image"][cam_name].pop("Segmentation", None)
