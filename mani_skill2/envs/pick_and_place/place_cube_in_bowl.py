@@ -353,7 +353,6 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
     def _register_render_cameras(self):
         """Register cameras for rendering."""
         # Remove render_camera from StationaryManipulationEnv
-        # When running RL policy, render with mode="cameras"
         return []
 
     def _configure_render_cameras(self):

@@ -687,7 +687,9 @@ class BaseEnv(gym.Env):
             return self._viewer
         elif mode == "rgb_array":
             images = []
-            for camera in self._render_cameras.values():
+            cameras = self._render_cameras if len(self._render_cameras) > 0 \
+                else self._cameras
+            for camera in cameras.values():
                 rgba = camera.get_images(take_picture=True)["Color"]
                 rgb = np.clip(rgba[..., :3] * 255, 0, 255).astype(np.uint8)
                 images.append(rgb)
