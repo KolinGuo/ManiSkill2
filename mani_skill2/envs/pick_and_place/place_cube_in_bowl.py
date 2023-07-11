@@ -170,6 +170,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                  gsam_track_cfg={},
                  robot_base_at_world_frame=False,
                  remove_obs_extra=[],
+                 remove_agent_qvel_obs=False,
                  save_trajectory=False,
                  use_random_camera_pose=False,
                  **kwargs):
@@ -232,6 +233,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self.real_setup = "xarm7" in kwargs.get("robot", "panda")
         self.robot_base_at_world_frame = robot_base_at_world_frame
         self.remove_obs_extra = remove_obs_extra
+        self.remove_agent_qvel_obs = remove_agent_qvel_obs
 
         self._check_assets()
 
@@ -763,6 +765,14 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
     # ---------------------------------------------------------------------- #
     # Observation
     # ---------------------------------------------------------------------- #
+    def _get_obs_agent(self) -> OrderedDict:
+        obs = super()._get_obs_agent()
+
+        if self.remove_agent_qvel_obs:
+            obs.pop("qvel", None)
+
+        return obs
+
     def _get_obs_extra(self) -> OrderedDict:
         # Update goal_pos in case the bowl moves
         self.goal_pos = self.bowl.pose.p + [0, 0, self.goal_height_delta]
