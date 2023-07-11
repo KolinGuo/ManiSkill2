@@ -1,6 +1,5 @@
 import os
 import shutil
-import re
 from collections import OrderedDict, defaultdict
 from pathlib import Path
 from typing import Union, Dict, List, Tuple
@@ -16,11 +15,7 @@ from mani_skill2.utils.common import random_choice
 from mani_skill2.utils.io_utils import load_json
 from mani_skill2.utils.registration import register_env
 from mani_skill2.utils.sapien_utils import vectorize_pose, look_at
-from mani_skill2.sensors.camera import (
-    Camera,
-    CameraConfig,
-    parse_camera_cfgs,
-)
+from mani_skill2.sensors.camera import CameraConfig
 from mani_skill2.utils.geometry import (
     get_axis_aligned_bbox_for_actor,
     angle_between_vec
@@ -49,109 +44,95 @@ def get_axis_aligned_bbox_for_cube(cube_actor):
     return mins, maxs
 
 
-@register_env("PlaceCubeInBowl-v0", max_episode_steps=200)
-@register_env("PlaceCubeInBowl-v1", max_episode_steps=50, extra_state_obs=True)
-@register_env("PlaceCubeInBowl-v2", max_episode_steps=50, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15)
-@register_env("PlaceCubeInBowl-v3", max_episode_steps=50, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+@register_env("PlaceCubeInBowl-v0", max_episode_steps=200,
+              extra_state_obs=False,
+              dist_cube_bowl=0.2, fix_init_bowl_pos=False)
+@register_env("PlaceCubeInBowl-v1", max_episode_steps=50,
+              dist_cube_bowl=0.2, fix_init_bowl_pos=False)
+@register_env("PlaceCubeInBowl-v2", max_episode_steps=50)
+@register_env("PlaceCubeInBowl-v3", max_episode_steps=50,
               reward_mode="dense_v2",
               no_robot_static_checks=True, success_needs_ungrasp=True)
-@register_env("PlaceCubeInBowl-v4", max_episode_steps=50, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+@register_env("PlaceCubeInBowl-v4", max_episode_steps=50,
               reward_mode="dense_v2",
               no_static_checks=True, success_needs_ungrasp=True,
               check_collision_during_init=False)
-@register_env("PlaceCubeInBowl-v5", max_episode_steps=50, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+@register_env("PlaceCubeInBowl-v5", max_episode_steps=50,
               reward_mode="dense_v2",
               no_static_checks=True, success_needs_ungrasp=True,
               check_collision_during_init=False,
               robot_base_at_world_frame=True)
-@register_env("PlaceCubeInBowlXArm-v5", max_episode_steps=50, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+@register_env("PlaceCubeInBowlXArm-v5", max_episode_steps=50,
               reward_mode="dense_v2",
-              robot="xarm7_d435", real_setup=True, image_obs_mode="sideview",
+              robot="xarm7_d435", image_obs_mode="hand_front",
               no_static_checks=True, success_needs_ungrasp=True,
               check_collision_during_init=False)
-@register_env("PlaceCubeInBowlXArm-v6", max_episode_steps=50, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+@register_env("PlaceCubeInBowlXArm-v6", max_episode_steps=50,
               reward_mode="dense_v2",
-              robot="xarm7_d435", real_setup=True, image_obs_mode="sideview",
+              robot="xarm7_d435", image_obs_mode="hand_front",
               no_static_checks=True, success_needs_ungrasp=True,
               success_needs_high_gripper=True,
               check_collision_during_init=False)
-@register_env("PlaceCubeInBowlXArm-v7", max_episode_steps=50, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+@register_env("PlaceCubeInBowlXArm-v7", max_episode_steps=50,
               reward_mode="dense_v2",
-              robot="xarm7_d435", real_setup=True, image_obs_mode="sideview",
+              robot="xarm7_d435", image_obs_mode="hand_front",
               no_static_checks=True, success_needs_ungrasp=True,
-              success_cube_not_strictly_inside=True,
-              goal_height_delta=0.08,
+              success_cube_above_only=True, goal_height_delta=0.08,
               check_collision_during_init=False)
 @register_env("PlaceCubeInBowlStaged-v2",
-              max_episode_steps=50, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+              max_episode_steps=50,
               reward_mode="sparse_staged", stage_obs=True)
 @register_env("PlaceCubeInBowlStagedNoStatic-v2",
-              max_episode_steps=50, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+              max_episode_steps=50,
               reward_mode="sparse_staged", stage_obs=True,
               no_static_checks=True)
 @register_env("PlaceCubeInBowlStaged-v3",
-              max_episode_steps=50, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+              max_episode_steps=50,
               reward_mode="sparse_staged_v2", stage_obs=True,
               no_robot_static_checks=True)
 @register_env("PlaceCubeInBowlStaged-v4",
-              max_episode_steps=50, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+              max_episode_steps=50,
               reward_mode="sparse_staged_v2", stage_obs=True,
               no_robot_static_checks=True, stage2_check_stage1=False)
-#@register_env("PlaceCubeInBowlStaged-v5",
-#              max_episode_steps=50, extra_state_obs=True,
-#              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
-#              reward_mode="sparse_staged_v2", stage_obs=True,
-#              no_robot_static_checks=True, stage2_check_stage1=False,
-#              no_reaching_reward_in_stage2=True)
+# @register_env("PlaceCubeInBowlStaged-v5",
+#               max_episode_steps=50,
+#               reward_mode="sparse_staged_v2", stage_obs=True,
+#               no_robot_static_checks=True, stage2_check_stage1=False,
+#               no_reaching_reward_in_stage2=True)
 @register_env("PlaceCubeInBowlStaged-v6",
-              max_episode_steps=50, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+              max_episode_steps=50,
               reward_mode="sparse_staged_v3", stage_obs=True,
               no_robot_static_checks=True, stage2_check_stage1=False,
               success_needs_ungrasp=True)
 @register_env("PlaceCubeInBowlStaged-v7",
-              max_episode_steps=50, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+              max_episode_steps=50,
               reward_mode="sparse_staged_v3", stage_obs=True,
               no_static_checks=True, stage2_check_stage1=False,
               success_needs_ungrasp=True, check_collision_during_init=False)
 @register_env("PlaceCubeInBowlStaged-v8",
-              max_episode_steps=50, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+              max_episode_steps=50,
               reward_mode="sparse_staged_v3", stage_obs=True,
               no_static_checks=True, stage2_check_stage1=False,
               success_needs_ungrasp=True, check_collision_during_init=False,
               robot_base_at_world_frame=True)
 @register_env("PlaceCubeInBowlStagedXArm-v8",
-              max_episode_steps=50, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+              max_episode_steps=50,
               reward_mode="sparse_staged_v3", stage_obs=True,
-              robot="xarm7_d435", real_setup=True, image_obs_mode="sideview",
+              robot="xarm7_d435", image_obs_mode="hand_front",
               no_static_checks=True, stage2_check_stage1=False,
               success_needs_ungrasp=True, check_collision_during_init=False)
 @register_env("PlaceCubeInBowlSAMStagedXArm-v8",
-              max_episode_steps=50, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+              max_episode_steps=50,
               reward_mode="grounded_sam_sparse_staged_v3", stage_obs=True,
-              robot="xarm7_d435", real_setup=True, image_obs_mode="sideview",
+              robot="xarm7_d435", image_obs_mode="hand_front",
               no_static_checks=True, stage2_check_stage1=False,
               success_needs_ungrasp=True, check_collision_during_init=False)
 class PlaceCubeInBowlEnv(StationaryManipulationEnv):
     DEFAULT_ASSET_ROOT = "{ASSET_DIR}/mani_skill2_ycb"
     DEFAULT_MODEL_JSON = "info_pick_v0.json"
 
-    SUPPORTED_IMAGE_OBS_MODES = ("hand_base", "sideview", "hand_front")
+    SUPPORTED_IMAGE_OBS_MODES = ("hand_base", "sideview",
+                                 "front", "front_right", "hand_front")
     SUPPORTED_REWARD_MODES = ("dense", "dense_v2", "sparse", "sparse_staged",
                               "sparse_staged_v2", "sparse_staged_v3",
                               "grounded_sam_sparse_staged_v3")
@@ -164,9 +145,9 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                  image_obs_shape=(128, 128),
                  obj_init_rot_z=True,
                  obj_init_rot=0,
-                 extra_state_obs=False,
-                 fix_init_bowl_pos=False,
-                 dist_cube_bowl=0.2,
+                 extra_state_obs=True,
+                 fix_init_bowl_pos=True,
+                 dist_cube_bowl=0.15,
                  cube_size_randomization=False,
                  bowl_size_randomization=False,
                  stage_obs=False,
@@ -178,7 +159,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                  no_reaching_reward_in_stage2=False,
                  success_needs_ungrasp=False,
                  success_needs_high_gripper=False,
-                 success_cube_not_strictly_inside=False,
+                 success_cube_above_only=False,
                  cube_inside_xy_bowl_bbox_scale=1.0,
                  goal_height_delta=0.05,
                  cube_above_delta=0.15,
@@ -186,8 +167,6 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                  ungrasp_sparse_reward=False,
                  ungrasp_reward_scale=1.0,
                  gsam_track_cfg={},
-                 real_setup=False,
-                 two_real_cameras=False,
                  robot_base_at_world_frame=False,
                  remove_obs_extra=[],
                  save_trajectory=False,
@@ -240,7 +219,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self.ungrasp_sparse_reward = ungrasp_sparse_reward
         self.ungrasp_reward_scale = ungrasp_reward_scale
         self.success_needs_high_gripper = success_needs_high_gripper
-        self.success_cube_not_strictly_inside = success_cube_not_strictly_inside
+        self.success_cube_above_only = success_cube_above_only
         self.cube_inside_xy_bowl_bbox_scale = cube_inside_xy_bowl_bbox_scale
         self.goal_height_delta = goal_height_delta
         self.cube_above_delta = cube_above_delta
@@ -249,14 +228,13 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
         self.pmodel = None
 
-        self.real_setup = real_setup
-        self.two_real_cameras = two_real_cameras
+        self.real_setup = "xarm7" in kwargs.get("robot", "panda")
         self.robot_base_at_world_frame = robot_base_at_world_frame
         self.remove_obs_extra = remove_obs_extra
 
         self._check_assets()
 
-        ### Grounded-SAM related ###
+        # Grounded-SAM related #
         self.use_grounded_sam = "grounded_sam" in kwargs.get(
             "reward_mode", self.SUPPORTED_REWARD_MODES[0]
         )
@@ -281,12 +259,122 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         if image_obs_mode is None:
             image_obs_mode = self.SUPPORTED_IMAGE_OBS_MODES[0]
         if image_obs_mode not in self.SUPPORTED_IMAGE_OBS_MODES:
-            raise NotImplementedError("Unsupported image obs mode: {}".format(image_obs_mode))
+            raise NotImplementedError(
+                f"Unsupported image obs mode: {image_obs_mode}"
+            )
         self._image_obs_mode = image_obs_mode
         self.image_obs_shape = image_obs_shape
 
-        super().__init__(*args, **kwargs)
+        from real_robot.envs.base_env import XArmBaseEnv
+        if not isinstance(self, XArmBaseEnv):
+            super().__init__(*args, **kwargs)
 
+    # ---------------------------------------------------------------------- #
+    # Configure agent and cameras
+    # ---------------------------------------------------------------------- #
+    def _configure_agent(self):
+        super()._configure_agent()
+
+        # Set robot base frame at world frame
+        if self.robot_base_at_world_frame:
+            if self.robot_uid == "panda":
+                self.world_frame_delta_pos = np.array([-0.615, 0, 0],
+                                                      dtype=np.float32)
+            else:
+                raise NotImplementedError(self.robot_uid)
+
+    def _register_cameras(self):
+        """Register (non-agent) cameras for environment observation."""
+        camera_configs = [super()._register_cameras()]  # base_camera
+        if not self.real_setup:
+            pose1 = look_at([0.4, 0.4, 0.4], [0.0, 0.0, 0.2])
+            pose2 = look_at([0.4, -0.4, 0.4], [0.0, 0.0, 0.2])
+            camera_configs.extend([
+                CameraConfig("side_camera_1",
+                             pose1.p, pose1.q, 512, 512, 1, 0.01, 10),
+                CameraConfig("side_camera_2",
+                             pose2.p, pose2.q, 512, 512, 1, 0.01, 10),
+            ])
+        else:
+            # front_camera
+            # SAPIEN camera pose is forward(x), left(y) and up(z)
+            # T @ np.array([[0,-1,0,0],[0,0,-1,0],[1,0,0,0],[0,0,0,1]])
+            # Tb_b2c_20230512_FAH_front.npy
+            #pose = Pose([0.582913, -0.84103, 0.447668],
+            #            [0.663717, -0.156798, 0.153559, 0.715062])
+            # Tb_b2c_20230525_CSE4144_front.npy
+            #pose = Pose([0.270408, -1.13308, 0.376658],
+            #            [0.69311, -0.0656008, 0.0722545, 0.714195])
+            # Tb_b2c_20230623_CSE4144_front.npy
+            #pose = Pose([0.252313, -1.13436, 0.368176],
+            #            [0.693578, -0.0652475, 0.0552481, 0.71529])
+            # Tb_b2c_20230710_CSE4144_front.npy
+            pose = Pose([0.280343, -1.07924, 0.385818],
+                        [0.716999, -0.0744607, 0.0769323, 0.688803])
+            camera_configs.append(
+                CameraConfig("front_camera", pose.p, pose.q, 848, 480,
+                             np.deg2rad(43.5), 0.01, 10)
+            )
+            # right_camera
+            pose2 = look_at([1.2, -0.1, 0.5], [0.3, -0.1, 0])
+            camera_configs.append(
+                CameraConfig("right_camera", pose2.p, pose2.q, 848, 480,
+                             np.deg2rad(43.5), 0.01, 10)
+            )
+        return camera_configs
+
+    def _configure_cameras(self):
+        super()._configure_cameras()
+
+        # Select camera_cfgs based on image_obs_mode
+        camera_cfgs = OrderedDict()
+        if self._image_obs_mode == "hand_base":
+            camera_cfgs["base_camera"] = self._camera_cfgs["base_camera"]
+            camera_cfgs["hand_camera"] = self._camera_cfgs["hand_camera"]
+        elif self._image_obs_mode == "sideview":
+            camera_cfgs["side_camera_1"] = self._camera_cfgs["side_camera_1"]
+            camera_cfgs["side_camera_2"] = self._camera_cfgs["side_camera_2"]
+        elif self._image_obs_mode == "front":
+            camera_cfgs["front_camera"] = self._camera_cfgs["front_camera"]
+        elif self._image_obs_mode == "front_right":
+            camera_cfgs["front_camera"] = self._camera_cfgs["front_camera"]
+            camera_cfgs["right_camera"] = self._camera_cfgs["right_camera"]
+        elif self._image_obs_mode == "hand_front":
+            camera_cfgs["front_camera"] = self._camera_cfgs["front_camera"]
+            camera_cfgs["hand_camera"] = self._camera_cfgs["hand_camera"]
+        else:
+            raise ValueError(f"Unknown image_obs_mode: {self._image_obs_mode}")
+
+        # Add Segmentation for SAM IoU eval
+        for cfg in camera_cfgs.values():
+            cfg.texture_names += ("Segmentation",)
+        self._camera_cfgs = camera_cfgs
+
+        # Set robot base frame at world frame, change camera pose accordingly
+        if self.robot_base_at_world_frame:
+            for uid, camera_cfg in self._camera_cfgs.items():
+                if uid in self._agent_camera_cfgs:
+                    continue  # do not update cameras attached to agent
+                else:
+                    camera_cfg.p -= self.world_frame_delta_pos
+
+    def _register_render_cameras(self):
+        """Register cameras for rendering."""
+        # Remove render_camera from StationaryManipulationEnv
+        # When running RL policy, render with mode="cameras"
+        return []
+
+    def _configure_render_cameras(self):
+        super()._configure_render_cameras()
+
+        # Set robot base frame at world frame, change camera pose accordingly
+        if self.robot_base_at_world_frame:
+            for uid, camera_cfg in self._render_camera_cfgs.items():
+                camera_cfg.p -= self.world_frame_delta_pos
+
+    # ---------------------------------------------------------------------- #
+    # Load model
+    # ---------------------------------------------------------------------- #
     def _check_assets(self):
         models_dir = self.asset_root / "models"
         for model_id in self.model_ids:
@@ -316,6 +404,16 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         )
         self.bowl.name = self.model_id
 
+    def _load_actors(self):
+        self._add_ground(render=self.bg_name is None)
+        self._load_model()
+        self.bowl.set_damping(0.1, 0.1)
+        self.cube = self._build_cube(self.cube_half_size,
+                                     color=(1, 0, 0), name="cube")
+
+    # ---------------------------------------------------------------------- #
+    # Reset
+    # ---------------------------------------------------------------------- #
     def reset(self, seed=None, reconfigure=False,
               model_id=None, model_scale=None):
         # reset stage obs
@@ -369,7 +467,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                 if model_scales is None:
                     model_scale = 1.0
                 else:
-                    model_scale = random_choice(model_scales, self._episode_rng)
+                    model_scale = random_choice(model_scales,
+                                                self._episode_rng)
             else:
                 model_scale = self._episode_rng.uniform(0.8, 1.2)
                 reconfigure = True
@@ -378,7 +477,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             reconfigure = True
 
         if self.cube_size_randomization:
-            self.cube_half_size = self.original_cube_half_size * self._episode_rng.uniform(0.7, 1.3)
+            scale_factor = self._episode_rng.uniform(0.7, 1.3)
+            self.cube_half_size = self.original_cube_half_size * scale_factor
             reconfigure = True
 
         model_info = self.model_db[self.model_id]
@@ -394,13 +494,6 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
     def _get_init_z(self):
         bbox_min = self.model_db[self.model_id]["bbox"]["min"]
         return -bbox_min[2] * self.model_scale + 0.05
-
-    def _load_actors(self):
-        self._add_ground(render=self.bg_name is None)
-        self._load_model()
-        self.bowl.set_damping(0.1, 0.1)
-        self.cube = self._build_cube(self.cube_half_size,
-                                     color=(1, 0, 0), name="cube")
 
     def _settle(self, t):
         sim_steps = int(self.sim_freq * t)
@@ -459,14 +552,15 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         """cubeA_ori is the angle from bowl to A"""
         self._initialize_bowl_actors()
 
-        if not self.real_setup:
-            if cube_ori is None:
-                # cube_ori = self._episode_rng.uniform(-np.pi/4, np.pi*3/4)
-                cube_ori = self._episode_rng.uniform(0, 2 * np.pi)
-            dist_cube_bowl = self.dist_cube_bowl
-        else:
+        if self.real_setup:
             dist_cube_bowl = self._episode_rng.uniform(0.15, 0.2)
-            cube_ori = self._episode_rng.uniform(np.pi, 2 * np.pi)
+            if cube_ori is None:
+                cube_ori = self._episode_rng.uniform(np.pi, 2 * np.pi)
+        else:
+            dist_cube_bowl = self.dist_cube_bowl
+            if cube_ori is None:
+                cube_ori = self._episode_rng.uniform(0, 2 * np.pi)
+
         cube_xy = self.bowl.pose.p[:2] + [np.cos(cube_ori) * dist_cube_bowl,
                                           np.sin(cube_ori) * dist_cube_bowl]
 
@@ -549,36 +643,6 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             self._initialize_actors()
             self._initialize_agent()
 
-    # Shift robot base frame to world frame
-    def _configure_agent(self):
-        super()._configure_agent()
-
-        # Set robot base frame at world frame
-        if self.robot_base_at_world_frame:
-            if self.robot_uid == "panda":
-                self.world_frame_delta_pos = np.array([-0.615, 0, 0], dtype=np.float32)
-            else:
-                raise NotImplementedError(self.robot_uid)
-
-    def _configure_cameras(self):
-        super()._configure_cameras()
-
-        # Set robot base frame at world frame, change camera pose accordingly
-        if self.robot_base_at_world_frame:
-            for uid, camera_cfg in self._camera_cfgs.items():
-                if uid in self._agent_camera_cfgs:
-                    continue  # do not update cameras attached to agent
-                else:
-                    camera_cfg.p -= self.world_frame_delta_pos
-
-    def _configure_render_cameras(self):
-        super()._configure_render_cameras()
-
-        # Set robot base frame at world frame, change camera pose accordingly
-        if self.robot_base_at_world_frame:
-            for uid, camera_cfg in self._render_camera_cfgs.items():
-                camera_cfg.p -= self.world_frame_delta_pos
-
     def _initialize_task(self, max_trials=100, verbose=False):
         super()._initialize_task()
 
@@ -591,6 +655,105 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
         self.goal_pos = self.bowl.pose.p + [0, 0, self.goal_height_delta]
 
+    # ---------------------------------------------------------------------- #
+    # Grounded-SAM related
+    # ---------------------------------------------------------------------- #
+    def _initialize_grounded_sam(
+        self, aot_max_len_long_term=2,
+        predict_gap=10,
+        prompt_with_robot_arm=True, device="cuda",
+        voxel_downsample_size=0.005, nb_neighbors=20, std_ratio=0.005,
+        **kwargs
+    ):
+        """
+        :param predict_gap: run grounded_sam per predict_gap frames
+                            use mask tracking for the rest
+        """
+        from grounded_sam_track import GroundedSAMTrack
+
+        self.env_object_texts = ["red cube", "green bowl"]
+
+        self.grounded_sam_track = GroundedSAMTrack(
+            aot_max_len_long_term=aot_max_len_long_term,
+            predict_gap=predict_gap,
+            prompt_with_robot_arm=prompt_with_robot_arm,
+            device=device,
+            **kwargs
+        )
+
+        # For _process_pts
+        self.voxel_downsample_size = voxel_downsample_size
+        self.nb_neighbors = nb_neighbors
+        self.std_ratio = std_ratio
+
+    @staticmethod
+    def _process_pts(
+        pts_lst: Union[np.ndarray, List[np.ndarray]],
+        voxel_downsample_size, nb_neighbors, std_ratio
+    ) -> Union[np.ndarray, List[np.ndarray]]:
+        from pyrl.utils.lib3d import np2pcd
+
+        if isinstance(pts_lst, np.ndarray):
+            pts_lst = [pts_lst]
+
+        ret_pts_lst = []
+        for pts in pts_lst:
+            pcd = np2pcd(pts)
+            if voxel_downsample_size is not None:
+                pcd = pcd.voxel_down_sample(voxel_size=voxel_downsample_size)
+            pcd_filter, inlier_inds = pcd.remove_statistical_outlier(
+                nb_neighbors=nb_neighbors, std_ratio=std_ratio
+            )
+            ret_pts_lst.append(np.asarray(pcd_filter.points))
+
+        if len(ret_pts_lst) == 1:
+            return ret_pts_lst[0]
+
+        return ret_pts_lst
+
+    def _render_rgb_pcd_images(
+        self, camera_params_dict=None, camera_captures_dict=None
+    ) -> Tuple[List[np.ndarray], List[np.ndarray], List[np.ndarray]]:
+        """
+        :return rgb_images: a list of [512, 512, 3] np.uint8 np.ndarray
+        :return xyz_images: a list of [512, 512, 3] np.float32 np.ndarray
+                            per-pixel xyz coordinates in world frame
+        :return xyz_masks: a list of [512, 512] np.bool np.ndarray
+                           per-pixel valid mask
+                           (in front of the far plane of camera frustum)
+        """
+        if camera_params_dict is None or camera_captures_dict is None:
+            self.update_render()
+            self.take_picture()
+            camera_params_dict = self.get_camera_params()
+            camera_captures_dict = self.get_images()
+
+        rgb_images = []
+        xyz_images = []  # xyz_images in world coordinates
+        xyz_masks = []  # xyz_mask for valid points
+        for cam_name in camera_captures_dict.keys():
+            camera_params = camera_params_dict[cam_name]
+            camera_captures = camera_captures_dict[cam_name]
+
+            rgba = camera_captures["Color"]
+            rgb_images.append(
+                np.clip(rgba[:, :, :3] * 255, 0, 255).astype(np.uint8)
+            )
+
+            pos_depth = camera_captures["Position"]
+            xyz_image = pos_depth[:, :, :3]
+            xyz_masks.append(pos_depth[..., 3] < 1)
+
+            image_shape = xyz_image.shape[:2]
+            T = camera_params["cam2world_gl"]
+            xyz_image = xyz_image.reshape(-1, 3) @ T[:3, :3].T + T[:3, 3]
+            xyz_images.append(xyz_image.reshape(*image_shape, 3))
+
+        return rgb_images, xyz_images, xyz_masks
+
+    # ---------------------------------------------------------------------- #
+    # Observation
+    # ---------------------------------------------------------------------- #
     def _get_obs_extra(self) -> OrderedDict:
         # Update goal_pos in case the bowl moves
         self.goal_pos = self.bowl.pose.p + [0, 0, self.goal_height_delta]
@@ -628,141 +791,114 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         for obs_key in self.remove_obs_extra:
             obs.pop(obs_key, None)
 
-        # print("goal", self.goal_pos)
-        # print("bowl", self.bowl.pose)
-        # print("cube", self.cube.pose)
+        return obs
+
+    def get_obs(self) -> OrderedDict:
+        """Wrapper for get_obs(). If using grounded_sam,
+        store following observation to self.recent_sam_obs.
+        :return sam_rgb_images: a [n_cams, 512, 512, 3] np.uint8 np.ndarray
+        :return sam_xyz_images: a [n_cams, 512, 512, 3] np.float32 np.ndarray
+                                per-pixel xyz coordinates in world frame
+        :return sam_xyz_masks: a [n_cams, 512, 512] np.bool np.ndarray
+                               per-pixel valid mask
+                               (in front of the far plane of camera frustum)
+        :return pred_masks: predicted mask for sam_rgb_images,
+                            a [n_cams, 512, 512] np.uint8 np.ndarray
+                            mask value is index+1 in object_texts
+        :return pred_phrases: a list of n_cams [n_boxes] list of pred_phrases
+        :return boxes_filt: a list of n_cams[n_boxes, 4] np.ndarray
+        :return object_pcds: {object_text: object_pcd}
+                             object_pcd is a [n_pts, 3] np.ndarray
+        :return object_filt_pcds: filtered points, {object_text: object_pcd}
+                                  object_pcd is a [n_pts, 3] np.ndarray
+        """
+        obs = super().get_obs()
+
+        # Store grounded_sam image observation
+        if self.use_grounded_sam:
+            # Render observation for grounded_sam_track
+            kwargs = {}
+            # Already rendered grounded_sam image views
+            if self._obs_mode == "image":
+                kwargs["camera_params_dict"] = obs["camera_param"]
+                kwargs["camera_captures_dict"] = obs["image"]
+
+            rgb_images, xyz_images, xyz_masks = self._render_rgb_pcd_images(
+                **kwargs
+            )
+            n_cams = len(rgb_images)
+            self.grounded_sam_track.ensure_num_segtracker(n_cams)
+
+            # Images are of shape [n_cams, H, W, 3]
+            # Masks are of shape [n_cams, H, W]
+            rgb_images = np.stack(rgb_images, axis=0)
+            xyz_images = np.stack(xyz_images, axis=0)
+            xyz_masks = np.stack(xyz_masks, axis=0)
+            H, W = rgb_images.shape[1:-1]
+
+            sam_obs = OrderedDict()
+            # sam_obs["sam_rgb_images"] = rgb_images
+            # sam_obs["sam_xyz_images"] = xyz_images
+            # sam_obs["sam_xyz_masks"] = xyz_masks
+
+            # Run grounded_sam_track
+            ret_dict = self.grounded_sam_track.predict_and_track_batch(
+                rgb_images,
+                [self._elapsed_steps] * n_cams,
+                self.env_object_texts,
+                xyz_masks,
+                np.arange(n_cams)
+            )
+            ret_dict["pred_masks"] = np.stack(ret_dict["pred_masks"], axis=0)
+            sam_obs.update(ret_dict)
+            pred_masks = ret_dict["pred_masks"]  # [n_cams, H, W]
+
+            # Extract pcd from xyz_images
+            object_pcds = {}
+            object_filt_pcds = {}
+            for i, object_text in enumerate(self.env_object_texts):
+                object_pcd = xyz_images[pred_masks == i+1]
+                object_pcds[object_text] = object_pcd
+                object_filt_pcds[object_text] = self._process_pts(
+                    object_pcd, self.voxel_downsample_size,
+                    self.nb_neighbors, self.std_ratio
+                )
+            sam_obs["object_pcds"] = object_pcds
+            sam_obs["object_filt_pcds"] = object_filt_pcds
+
+            self.recent_sam_obs = sam_obs
+
+            # TODO: double check, copied from get_images_sideview()
+            # Save gt mask for calculate SAM pred_mask iou, [n_cams, H, W]
+            self._recent_gt_actor_mask = np.stack(
+                [d["Segmentation"][..., 1] for d in obs["image"].values()],
+                axis=0
+            )
+
+        if self._obs_mode == "image":
+            # Remove Segmentation
+            for cam_name in obs["image"]:
+                obs["image"][cam_name].pop("Segmentation", None)
+            obs = resize_obs_images(obs, self.image_obs_shape)
 
         return obs
 
-    def check_cube_inside(self, bowl_bbox=None, cube_bbox=None):
-        """Check if the cube is placed inside the bowl"""
-        if bowl_bbox is not None and cube_bbox is not None:
-            bowl_mins, bowl_maxs = bowl_bbox
-            cube_mins, cube_maxs = cube_bbox
+    # ---------------------------------------------------------------------- #
+    # Reward mode
+    # ---------------------------------------------------------------------- #
+    def get_reward(self, **kwargs):
+        if self.use_grounded_sam:
+            return self.compute_sparse_grounded_sam_reward(**kwargs)
+        elif self._reward_mode == "sparse_staged":
+            return self.compute_staged_reward(**kwargs)
+        elif self._reward_mode == "sparse_staged_v2":
+            return self.compute_staged_reward_v2(**kwargs)
+        elif self._reward_mode == "sparse_staged_v3":
+            return self.compute_staged_reward_v3(**kwargs)
+        elif self._reward_mode == "dense_v2":
+            return self.compute_dense_reward_v2(**kwargs)
         else:
-            bowl_mins, bowl_maxs = get_axis_aligned_bbox_for_actor(self.bowl)
-            cube_mins, cube_maxs = get_axis_aligned_bbox_for_cube(self.cube)
-
-        if not np.isclose(self.cube_inside_xy_bowl_bbox_scale, 1.0):
-            bowl_bbox_size = bowl_maxs - bowl_mins
-            bowl_bbox_size[-1] = 0.0
-            bowl_bbox_delta = bowl_bbox_size * (1 - self.cube_inside_xy_bowl_bbox_scale) / 2.0
-            bowl_mins += bowl_bbox_delta
-            bowl_maxs -= bowl_bbox_delta
-
-        # For xy axes, cube need to be inside bowl
-        # For z axis, cube_z_max can be greater than bowl_z_max
-        #   by its half_length
-        cube_inside = (
-            bowl_mins[0] <= cube_mins[0] and cube_maxs[0] <= bowl_maxs[0] and
-            bowl_mins[1] <= cube_mins[1] and cube_maxs[1] <= bowl_maxs[1] and
-            bowl_mins[2] <= cube_mins[2]
-        )
-        if not self.success_cube_not_strictly_inside:
-            cube_inside = cube_inside and cube_maxs[2] <= bowl_maxs[2] + self.cube_half_size.max()
-        else:
-            cube_inside = cube_inside and cube_maxs[2] <= bowl_maxs[2] + self.cube_above_delta
-
-        return cube_inside
-
-    def check_robot_static(self, thresh=0.2):
-        # Assume that the last two DoF is gripper
-        qvel = self.agent.robot.get_qvel()[:-2]
-        return np.max(np.abs(qvel)) <= thresh
-
-    def check_actor_static(self, actor: sapien.Actor,
-                           max_v=None, max_ang_v=None):
-        """Check whether the actor is static by finite difference.
-        Note that the angular velocity is normalized by pi due to legacy issues
-        """
-        from mani_skill2.utils.geometry import angle_distance
-
-        pose = actor.get_pose()
-
-        if self._elapsed_steps <= 1:
-            flag_v = (max_v is None) or (
-                np.linalg.norm(actor.get_velocity()) <= max_v
-            )
-            flag_ang_v = (max_ang_v is None) or (
-                np.linalg.norm(actor.get_angular_velocity()) <= max_ang_v
-            )
-        else:
-            prev_actor_pose = self._prev_actor_poses[actor.name]
-            dt = 1.0 / self._control_freq
-            flag_v = (max_v is None) or (
-                np.linalg.norm(pose.p - prev_actor_pose.p) <= max_v * dt
-            )
-            flag_ang_v = (max_ang_v is None) or (
-                angle_distance(prev_actor_pose, pose) <= max_ang_v * dt
-            )
-
-        # CAUTION: carefully deal with it for MPC
-        self._prev_actor_poses[actor.name] = pose
-        return flag_v and flag_ang_v
-
-    def evaluate(self, **kwargs):
-        is_cube_inside = self.check_cube_inside()
-        is_robot_static = self.check_robot_static()
-        is_cube_static = self.check_actor_static(self.cube,
-                                                 max_v=0.1, max_ang_v=0.2)
-        is_bowl_static = self.check_actor_static(self.bowl,
-                                                 max_v=0.1, max_ang_v=0.2)
-        z_axis_world = np.array([0, 0, 1])
-        bowl_up_axis = self.bowl.get_pose().to_transformation_matrix()[:3, :3]\
-                     @ z_axis_world
-        is_bowl_upwards = abs(angle_between_vec(bowl_up_axis,
-                                                z_axis_world)) < 0.1*np.pi
-        is_cube_grasped = self.agent.check_grasp(self.cube)
-        is_gripper_high_enough = self.tcp.pose.p[2] >= self.tcp_height_thres
-
-        if self.no_robot_static_checks:
-            success = (is_cube_inside and is_cube_static and
-                       is_bowl_static and is_bowl_upwards)
-        elif self.no_static_checks:
-            success = is_cube_inside and is_bowl_upwards
-        else:
-            success = (is_cube_inside and is_robot_static and
-                       is_cube_static and is_bowl_static and is_bowl_upwards)
-
-        if self.success_needs_ungrasp:
-            success = success and (not is_cube_grasped)
-        if self.success_needs_high_gripper:
-            success = success and is_gripper_high_enough
-
-        eval_dict = dict(
-            is_cube_grasped=is_cube_grasped,
-            is_cube_inside=is_cube_inside,
-            is_robot_static=is_robot_static,
-            is_cube_static=is_cube_static,
-            is_bowl_static=is_bowl_static,
-            is_bowl_upwards=is_bowl_upwards,
-            is_gripper_high_enough=is_gripper_high_enough,
-            success=success,
-        )
-        eval_dict.update(self.get_cost())
-
-        if "sparse_staged" in self._reward_mode:
-            self.current_stage = self.get_current_stage(eval_dict)
-
-            eval_dict.update(dict(
-                in_stage1=self.current_stage[0],
-                in_stage2=self.current_stage[1],
-            ))
-
-        return eval_dict
-
-    def get_cost(self) -> dict:
-        ''' Calculate the current costs and return a dict '''
-        cost = {}
-
-        tcp_to_cube_pos = self.cube.pose.p - self.tcp.pose.p
-        tcp_to_cube_dist = np.linalg.norm(tcp_to_cube_pos)
-        cost["tcp_to_cube_dist"] = tcp_to_cube_dist
-
-        cube_to_goal_dist = np.linalg.norm(self.goal_pos - self.cube.pose.p)
-        cost["cube_to_goal_dist"] = cube_to_goal_dist
-
-        return cost
+            return super().get_reward(**kwargs)
 
     def compute_dense_reward(self, info, **kwargs):
         reward = 0.0
@@ -810,7 +946,9 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
             # lift gripper reward (to tcp_height_thres + 0.01)
             if self.success_needs_high_gripper:
-                reward += 1 - np.tanh(5 * abs(self.tcp.pose.p[2] - self.tcp_height_thres - 1e-2))
+                reward += 1 - np.tanh(5 * abs(
+                    self.tcp.pose.p[2] - self.tcp_height_thres - 1e-2
+                ))
         else:
             tcp_to_cube_dist = info["tcp_to_cube_dist"]
             reaching_reward = 1 - np.tanh(5 * tcp_to_cube_dist)
@@ -883,61 +1021,145 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
             # lift gripper reward (to tcp_height_thres + 0.01)
             if self.success_needs_high_gripper:
-                reward += 1 - np.tanh(5 * abs(self.tcp.pose.p[2] - self.tcp_height_thres - 1e-2))
+                reward += 1 - np.tanh(5 * abs(
+                    self.tcp.pose.p[2] - self.tcp_height_thres - 1e-2
+                ))
         else:
             reaching_reward = 1 - np.tanh(5 * tcp_to_cube_dist)
             reward += reaching_reward
 
         return reward
 
-    def get_state(self) -> np.ndarray:
-        state = super().get_state()
-        state = np.hstack([state, self.goal_pos,
-                           self.current_stage.astype(float)])
-        if self.use_grounded_sam:
-            state = np.hstack([state, self.sam_current_stage.astype(float)])
-        return state
+    def compute_sparse_grounded_sam_reward(self, info, **kwargs):
+        if "sparse_staged_v3" in self._reward_mode:
+            reward = self.compute_staged_reward_v3(info, **kwargs)
 
-    def set_state(self, state):
-        if self.use_grounded_sam:
-            self.sam_current_stage = state[-self.num_stages:].astype(bool)
-            state = state[:-self.num_stages]
-        self.current_stage = state[-self.num_stages:].astype(bool)
-        self.goal_pos = state[-3-self.num_stages:-self.num_stages]
-        super().set_state(state[:-3-self.num_stages])
-        self._prev_actor_poses = {
-            self.cube.name: self.cube.get_pose(),
-            self.bowl.name: self.bowl.get_pose(),
-        }
+            sam_reward = self.compute_staged_reward_v3(
+                info["sam_eval_dict"], self.sam_current_stage, **kwargs
+            )
 
-    ### Grounded-SAM related ###
-    def _initialize_grounded_sam(
-        self, aot_max_len_long_term=2,
-        predict_gap=10,
-        prompt_with_robot_arm=True, device="cuda",
-        voxel_downsample_size=0.005, nb_neighbors=20, std_ratio=0.005,
-        **kwargs
-    ):
+            info["sam/gt_reward"] = reward
+            info["sam_eval_dict"]["reward"] = sam_reward
+
+            return sam_reward
+        else:
+            raise NotImplementedError(self._reward_mode)
+
+    # ---------------------------------------------------------------------- #
+    # Step
+    # ---------------------------------------------------------------------- #
+    def step(self, action: Union[None, np.ndarray, Dict]):
+        """When use_grounded_sam, all info keys without sam/ prefix is GT
+        except for rewards during logging (rewards is sam_reward), gt_reward is GT
         """
-        :param predict_gap: run grounded_sam per predict_gap frames
-                            use mask tracking for the rest
-        """
-        from grounded_sam_track import GroundedSAMTrack
+        if self.use_random_camera_pose:
+            orig_pose = self._render_cameras["render_camera"].camera_cfg.pose
+            delta_pose = Pose(
+                p=np.random.uniform(-0.1, 0.1, size=3),
+                q=euler2quat(*np.deg2rad(np.random.uniform(-10, 10, size=3)))
+            )
+            self._render_cameras["render_camera"].camera.set_pose(
+                orig_pose * delta_pose
+            )
+        obs, reward, done, info = super().step(action)
 
-        self.env_object_texts = ["red cube", "green bowl"]
+        if self.use_grounded_sam:
+            # Update info dict
+            sam_eval_dict = info.pop("sam_eval_dict")
+            for k, v in sam_eval_dict.items():
+                # all sam related info are prefixed with sam/
+                info[f"sam/{k}"] = v
 
-        self.grounded_sam_track = GroundedSAMTrack(
-            aot_max_len_long_term=aot_max_len_long_term,
-            predict_gap=predict_gap,
-            prompt_with_robot_arm=prompt_with_robot_arm,
-            device=device,
-            **kwargs
+                # Skip accuracy computation for these keys
+                if ("mask_iou" in k or "pos_dist" in k or "bbox_iou" in k
+                        or "visible" in k):
+                    continue
+
+                # Add accuracy eval info
+                if isinstance(v, float):
+                    if k == "reward":
+                        info[f"sam/{k}_diff"] = v - info["sam/gt_reward"]
+                    else:
+                        info[f"sam/{k}_diff"] = v - info[k]
+                else:  # boolean
+                    info[f"sam/{k}_acc"] = (v == info[k])
+
+        if self.use_grounded_sam and self.save_trajectory:
+            self.current_traj["env_states"].append(self.get_state())
+            self.current_traj["sam_obs"].append(self.recent_sam_obs)
+            self.current_traj["action"].append(action)
+            self.current_traj["reward"].append(reward)
+            self.current_traj["done"].append(done)
+            self.current_traj["info"].append(info)
+        return obs, reward, done, info
+
+    def check_cube_inside(self, bowl_bbox=None, cube_bbox=None):
+        """Check if the cube is placed inside the bowl"""
+        if bowl_bbox is not None and cube_bbox is not None:
+            bowl_mins, bowl_maxs = bowl_bbox
+            cube_mins, cube_maxs = cube_bbox
+        else:
+            bowl_mins, bowl_maxs = get_axis_aligned_bbox_for_actor(self.bowl)
+            cube_mins, cube_maxs = get_axis_aligned_bbox_for_cube(self.cube)
+
+        if not np.isclose(self.cube_inside_xy_bowl_bbox_scale, 1.0):
+            bowl_bbox_size = bowl_maxs - bowl_mins
+            bowl_bbox_size[-1] = 0.0
+            bowl_bbox_delta = (bowl_bbox_size / 2.0
+                               * (1 - self.cube_inside_xy_bowl_bbox_scale))
+            bowl_mins += bowl_bbox_delta
+            bowl_maxs -= bowl_bbox_delta
+
+        # For xy axes, cube need to be inside bowl
+        # For z axis, cube_z_max can be greater than bowl_z_max
+        #   by its half_length
+        if not self.success_cube_above_only:
+            z_delta = self.cube_half_size.max()
+        else:
+            z_delta = self.cube_above_delta
+        cube_inside = (
+            bowl_mins[0] <= cube_mins[0] and cube_maxs[0] <= bowl_maxs[0] and
+            bowl_mins[1] <= cube_mins[1] and cube_maxs[1] <= bowl_maxs[1] and
+            bowl_mins[2] <= cube_mins[2] and
+            cube_maxs[2] <= bowl_maxs[2] + z_delta
         )
 
-        # For _process_pts
-        self.voxel_downsample_size = voxel_downsample_size
-        self.nb_neighbors = nb_neighbors
-        self.std_ratio = std_ratio
+        return cube_inside
+
+    def check_robot_static(self, thresh=0.2):
+        # Assume that the last two DoF is gripper
+        qvel = self.agent.robot.get_qvel()[:-2]
+        return np.max(np.abs(qvel)) <= thresh
+
+    def check_actor_static(self, actor: sapien.Actor,
+                           max_v=None, max_ang_v=None):
+        """Check whether the actor is static by finite difference.
+        Note that the angular velocity is normalized by pi due to legacy issues
+        """
+        from mani_skill2.utils.geometry import angle_distance
+
+        pose = actor.get_pose()
+
+        if self._elapsed_steps <= 1:
+            flag_v = (max_v is None) or (
+                np.linalg.norm(actor.get_velocity()) <= max_v
+            )
+            flag_ang_v = (max_ang_v is None) or (
+                np.linalg.norm(actor.get_angular_velocity()) <= max_ang_v
+            )
+        else:
+            prev_actor_pose = self._prev_actor_poses[actor.name]
+            dt = 1.0 / self._control_freq
+            flag_v = (max_v is None) or (
+                np.linalg.norm(pose.p - prev_actor_pose.p) <= max_v * dt
+            )
+            flag_ang_v = (max_ang_v is None) or (
+                angle_distance(prev_actor_pose, pose) <= max_ang_v * dt
+            )
+
+        # CAUTION: carefully deal with it for MPC
+        self._prev_actor_poses[actor.name] = pose
+        return flag_v and flag_ang_v
 
     def get_current_stage(self, info, current_stage=None):
         if current_stage is None:
@@ -960,143 +1182,62 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             current_stage[-1] = True
         return current_stage
 
-    @staticmethod
-    def _process_pts(
-        pts_lst: Union[np.ndarray, List[np.ndarray]],
-        voxel_downsample_size, nb_neighbors, std_ratio
-    ) -> Union[np.ndarray, List[np.ndarray]]:
-        from pyrl.utils.lib3d import np2pcd
+    def evaluate(self, **kwargs):
+        is_cube_inside = self.check_cube_inside()
+        is_robot_static = self.check_robot_static()
+        is_cube_static = self.check_actor_static(self.cube,
+                                                 max_v=0.1, max_ang_v=0.2)
+        is_bowl_static = self.check_actor_static(self.bowl,
+                                                 max_v=0.1, max_ang_v=0.2)
+        z_axis_world = np.array([0, 0, 1])
+        bowl_up_axis = self.bowl.get_pose().to_transformation_matrix()[:3, :3]\
+                       @ z_axis_world
+        is_bowl_upwards = abs(angle_between_vec(bowl_up_axis,
+                                                z_axis_world)) < 0.1*np.pi
+        is_cube_grasped = self.agent.check_grasp(self.cube)
+        is_gripper_high_enough = self.tcp.pose.p[2] >= self.tcp_height_thres
 
-        if isinstance(pts_lst, np.ndarray):
-            pts_lst = [pts_lst]
+        if self.no_robot_static_checks:
+            success = (is_cube_inside and is_cube_static and
+                       is_bowl_static and is_bowl_upwards)
+        elif self.no_static_checks:
+            success = is_cube_inside and is_bowl_upwards
+        else:
+            success = (is_cube_inside and is_robot_static and
+                       is_cube_static and is_bowl_static and is_bowl_upwards)
 
-        ret_pts_lst = []
-        for pts in pts_lst:
-            pcd = np2pcd(pts)
-            if voxel_downsample_size is not None:
-                pcd = pcd.voxel_down_sample(voxel_size=voxel_downsample_size)
-            pcd_filter, inlier_inds = pcd.remove_statistical_outlier(
-                nb_neighbors=nb_neighbors, std_ratio=std_ratio
-            )
-            ret_pts_lst.append(np.asarray(pcd_filter.points))
+        if self.success_needs_ungrasp:
+            success = success and (not is_cube_grasped)
+        if self.success_needs_high_gripper:
+            success = success and is_gripper_high_enough
 
-        if len(ret_pts_lst) == 1:
-            return ret_pts_lst[0]
+        eval_dict = dict(
+            is_cube_grasped=is_cube_grasped,
+            is_cube_inside=is_cube_inside,
+            is_robot_static=is_robot_static,
+            is_cube_static=is_cube_static,
+            is_bowl_static=is_bowl_static,
+            is_bowl_upwards=is_bowl_upwards,
+            is_gripper_high_enough=is_gripper_high_enough,
+            success=success,
+        )
+        eval_dict.update(self.get_cost())
 
-        return ret_pts_lst
+        if "sparse_staged" in self._reward_mode:
+            self.current_stage = self.get_current_stage(eval_dict)
 
-    def get_obs(self) -> OrderedDict:
-        """Store following observation to self.recent_sam_obs if using grounded_sam
-        :return sam_rgb_images: a [n_cams, 512, 512, 3] np.uint8 np.ndarray
-        :return sam_xyz_images: a [n_cams, 512, 512, 3] np.float32 np.ndarray
-                                per-pixel xyz coordinates in world frame
-        :return sam_xyz_masks: a [n_cams, 512, 512] np.bool np.ndarray
-                               per-pixel valid mask
-                               (in front of the far plane of camera frustum)
-        :return pred_masks: predicted mask for sam_rgb_images,
-                            a [n_cams, 512, 512] np.uint8 np.ndarray
-                            mask value is index+1 in object_texts
-        :return pred_phrases: a list of n_cams [n_boxes] list of pred_phrases
-        :return boxes_filt: a list of n_cams[n_boxes, 4] np.ndarray
-        :return object_pcds: {object_text: object_pcd}
-                             object_pcd is a [n_pts, 3] np.ndarray
-        :return object_filt_pcds: filtered points, {object_text: object_pcd}
-                                  object_pcd is a [n_pts, 3] np.ndarray
-        """
-        obs = super().get_obs()
+            eval_dict.update(dict(
+                in_stage1=self.current_stage[0],
+                in_stage2=self.current_stage[1],
+            ))
 
-        # Store grounded_sam image observation
+        return eval_dict
+
+    def get_done(self, info: dict, **kwargs):
         if self.use_grounded_sam:
-            # Render observation for grounded_sam_track
-            kwargs = {}
-            # Already rendered grounded_sam image views
-            if (self._obs_mode == "image"
-                    and self._image_obs_mode != "hand_base"):
-                kwargs["camera_params_dict"] = obs["camera_param"]
-                kwargs["camera_captures_dict"] = obs["image"]
-
-            rgb_images, xyz_images, xyz_masks = self._render_rgb_pcd_images(
-                **kwargs
-            )
-            n_cams = len(rgb_images)
-            self.grounded_sam_track.ensure_num_segtracker(n_cams)
-
-            # Images are of shape [n_cams, H, W, 3]
-            # Masks are of shape [n_cams, H, W]
-            rgb_images = np.stack(rgb_images, axis=0)
-            xyz_images = np.stack(xyz_images, axis=0)
-            xyz_masks = np.stack(xyz_masks, axis=0)
-            H, W = rgb_images.shape[1:-1]
-
-            sam_obs = OrderedDict()
-            # sam_obs["sam_rgb_images"] = rgb_images
-            # sam_obs["sam_xyz_images"] = xyz_images
-            # sam_obs["sam_xyz_masks"] = xyz_masks
-
-            # Run grounded_sam_track
-            ret_dict = self.grounded_sam_track.predict_and_track_batch(
-                rgb_images,
-                [self._elapsed_steps] * n_cams,
-                self.env_object_texts,
-                xyz_masks,
-                np.arange(n_cams)
-            )
-            ret_dict["pred_masks"] = np.stack(ret_dict["pred_masks"], axis=0)
-            sam_obs.update(ret_dict)
-            pred_masks = ret_dict["pred_masks"]  # [n_cams, H, W]
-
-            # Extract pcd from xyz_images
-            object_pcds = {}
-            object_filt_pcds = {}
-            for i, object_text in enumerate(self.env_object_texts):
-                object_pcd = xyz_images[pred_masks == i+1]
-                object_pcds[object_text] = object_pcd
-                object_filt_pcds[object_text] = self._process_pts(
-                    object_pcd, self.voxel_downsample_size,
-                    self.nb_neighbors, self.std_ratio
-                )
-            sam_obs["object_pcds"] = object_pcds
-            sam_obs["object_filt_pcds"] = object_filt_pcds
-
-            self.recent_sam_obs = sam_obs
-
-        if self._obs_mode == "image" and self._image_obs_mode != "hand_base":
-            # Remove Segmentation
-            for cam_name in obs["image"]:
-                obs["image"][cam_name].pop("Segmentation", None)
-            obs = resize_obs_images(obs, self.image_obs_shape)
-
-        return obs
-
-    @staticmethod
-    def get_mask_iou(gt_mask: np.ndarray, pred_mask: np.ndarray) -> float:
-        assert gt_mask.dtype == bool, f"Got {gt_mask.dtype}"
-        assert pred_mask.dtype == bool, f"Got {pred_mask.dtype}"
-        assert gt_mask.shape == pred_mask.shape, \
-            f"{gt_mask.shape} != {pred_mask.shape}"
-
-        return float((gt_mask & pred_mask).sum() / (gt_mask | pred_mask).sum())
-
-    @staticmethod
-    def get_bbox_iou(gt_bbox_mins, gt_bbox_maxs,
-                     pred_bbox_mins, pred_bbox_maxs) -> float:
-        assert np.all(gt_bbox_maxs >= gt_bbox_mins), \
-            f"Diff: {gt_bbox_maxs - gt_bbox_mins}"
-        assert np.all(pred_bbox_maxs >= pred_bbox_mins), \
-            f"Diff: {pred_bbox_maxs - pred_bbox_mins}"
-
-        gt_bbox_area = np.prod(gt_bbox_maxs - gt_bbox_mins)
-        pred_bbox_area = np.prod(pred_bbox_maxs - pred_bbox_mins)
-
-        inter_bbox_mins = np.maximum(gt_bbox_mins, pred_bbox_mins)
-        inter_bbox_maxs = np.minimum(gt_bbox_maxs, pred_bbox_maxs)
-        if np.any(inter_bbox_maxs <= inter_bbox_mins):
-            return 0.0
-
-        inter_bbox_area = np.prod(inter_bbox_maxs - inter_bbox_mins)
-
-        return float(inter_bbox_area
-            / (gt_bbox_area + pred_bbox_area - inter_bbox_area))
+            return bool(info["sam_eval_dict"]["success"])
+        else:
+            return bool(info["success"])
 
     def get_info(self, **kwargs) -> dict:
         info = super().get_info(**kwargs)
@@ -1181,7 +1322,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             )
 
             if self.success_needs_high_gripper:
-                sam_eval_dict["success"] = sam_eval_dict["success"] and is_gripper_high_enough
+                sam_eval_dict["success"] = (sam_eval_dict["success"]
+                                            and is_gripper_high_enough)
 
             if "sparse_staged" in self._reward_mode:
                 self.sam_current_stage = self.get_current_stage(
@@ -1196,263 +1338,75 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
         return info
 
-    def get_reward(self, **kwargs):
+    def get_cost(self) -> dict:
+        ''' Calculate the current costs and return a dict '''
+        cost = {}
+
+        tcp_to_cube_pos = self.cube.pose.p - self.tcp.pose.p
+        tcp_to_cube_dist = np.linalg.norm(tcp_to_cube_pos)
+        cost["tcp_to_cube_dist"] = tcp_to_cube_dist
+
+        cube_to_goal_dist = np.linalg.norm(self.goal_pos - self.cube.pose.p)
+        cost["cube_to_goal_dist"] = cube_to_goal_dist
+
+        return cost
+
+    @staticmethod
+    def get_mask_iou(gt_mask: np.ndarray, pred_mask: np.ndarray) -> float:
+        assert gt_mask.dtype == bool, f"Got {gt_mask.dtype}"
+        assert pred_mask.dtype == bool, f"Got {pred_mask.dtype}"
+        assert gt_mask.shape == pred_mask.shape, \
+            f"{gt_mask.shape} != {pred_mask.shape}"
+
+        return float((gt_mask & pred_mask).sum() / (gt_mask | pred_mask).sum())
+
+    @staticmethod
+    def get_bbox_iou(gt_bbox_mins, gt_bbox_maxs,
+                     pred_bbox_mins, pred_bbox_maxs) -> float:
+        assert np.all(gt_bbox_maxs >= gt_bbox_mins), \
+            f"Diff: {gt_bbox_maxs - gt_bbox_mins}"
+        assert np.all(pred_bbox_maxs >= pred_bbox_mins), \
+            f"Diff: {pred_bbox_maxs - pred_bbox_mins}"
+
+        gt_bbox_area = np.prod(gt_bbox_maxs - gt_bbox_mins)
+        pred_bbox_area = np.prod(pred_bbox_maxs - pred_bbox_mins)
+
+        inter_bbox_mins = np.maximum(gt_bbox_mins, pred_bbox_mins)
+        inter_bbox_maxs = np.minimum(gt_bbox_maxs, pred_bbox_maxs)
+        if np.any(inter_bbox_maxs <= inter_bbox_mins):
+            return 0.0
+
+        inter_bbox_area = np.prod(inter_bbox_maxs - inter_bbox_mins)
+
+        return float(inter_bbox_area
+                     / (gt_bbox_area + pred_bbox_area - inter_bbox_area))
+
+    # ---------------------------------------------------------------------- #
+    # Simulation state
+    # ---------------------------------------------------------------------- #
+    def get_state(self) -> np.ndarray:
+        state = super().get_state()
+        state = np.hstack([state, self.goal_pos,
+                           self.current_stage.astype(float)])
         if self.use_grounded_sam:
-            return self.compute_sparse_grounded_sam_reward(**kwargs)
-        elif self._reward_mode == "sparse_staged":
-            return self.compute_staged_reward(**kwargs)
-        elif self._reward_mode == "sparse_staged_v2":
-            return self.compute_staged_reward_v2(**kwargs)
-        elif self._reward_mode == "sparse_staged_v3":
-            return self.compute_staged_reward_v3(**kwargs)
-        elif self._reward_mode == "dense_v2":
-            return self.compute_dense_reward_v2(**kwargs)
-        else:
-            return super().get_reward(**kwargs)
+            state = np.hstack([state, self.sam_current_stage.astype(float)])
+        return state
 
-    def compute_sparse_grounded_sam_reward(self, info, **kwargs):
-        if "sparse_staged_v3" in self._reward_mode:
-            reward = self.compute_staged_reward_v3(info, **kwargs)
-
-            sam_reward = self.compute_staged_reward_v3(
-                info["sam_eval_dict"], self.sam_current_stage, **kwargs
-            )
-
-            info["sam/gt_reward"] = reward
-            info["sam_eval_dict"]["reward"] = sam_reward
-
-            return sam_reward
-        else:
-            raise NotImplementedError(self._reward_mode)
-
-    def get_done(self, info: dict, **kwargs):
+    def set_state(self, state):
         if self.use_grounded_sam:
-            return bool(info["sam_eval_dict"]["success"])
-        else:
-            return bool(info["success"])
-
-    def step(self, action: Union[None, np.ndarray, Dict]):
-        """When use_grounded_sam, all info keys without sam/ prefix is GT
-        except for rewards during logging (rewards is sam_reward), gt_reward is GT
-        """
-        if self.use_random_camera_pose:
-            orig_pose = self._render_cameras["render_camera"].camera_cfg.pose
-            delta_pose = Pose(
-                p=np.random.uniform(-0.1, 0.1, size=3),
-                q=euler2quat(*np.deg2rad(np.random.uniform(-10, 10, size=3)))
-            )
-            self._render_cameras["render_camera"].camera.set_pose(
-                orig_pose * delta_pose
-            )
-        obs, reward, done, info = super().step(action)
-
-        if self.use_grounded_sam:
-            # Update info dict
-            sam_eval_dict = info.pop("sam_eval_dict")
-            for k, v in sam_eval_dict.items():
-                # all sam related info are prefixed with sam/
-                info[f"sam/{k}"] = v
-
-                # Skip accuracy computation for these keys
-                if ("mask_iou" in k or "pos_dist" in k or "bbox_iou" in k
-                        or "visible" in k):
-                    continue
-
-                # Add accuracy eval info
-                if isinstance(v, float):
-                    if k == "reward":
-                        info[f"sam/{k}_diff"] = v - info["sam/gt_reward"]
-                    else:
-                        info[f"sam/{k}_diff"] = v - info[k]
-                else:  # boolean
-                    info[f"sam/{k}_acc"] = (v == info[k])
-
-        if self.use_grounded_sam and self.save_trajectory:
-            self.current_traj["env_states"].append(self.get_state())
-            self.current_traj["sam_obs"].append(self.recent_sam_obs)
-            self.current_traj["action"].append(action)
-            self.current_traj["reward"].append(reward)
-            self.current_traj["done"].append(done)
-            self.current_traj["info"].append(info)
-        return obs, reward, done, info
-
-    # Add multi-view cameras
-    def update_render_and_take_picture_sideview(self):
-        """Update render and take pictures from all cameras (non-blocking)."""
-        if self._renderer_type == "client":
-            # NOTE: not compatible with StereoDepthCamera
-            cameras = [x.camera for x in self._render_cameras.values()]
-            self._scene._update_render_and_take_pictures(cameras)
-        else:
-            self.update_render()
-            for cam in self._render_cameras.values():
-                cam.take_picture()
-
-    def get_images_sideview(self) -> Dict[str, Dict[str, np.ndarray]]:
-        """Get (raw) images from all cameras (blocking)."""
-        images = OrderedDict()
-        for name, cam in self._render_cameras.items():
-            images[name] = cam.get_images()
-
-        # Save gt mask for calculate SAM pred_mask iou, [n_cams, H, W]
-        self._recent_gt_actor_mask = np.stack(
-            [d["Segmentation"][..., 1] for d in images.values()], axis=0
-        )
-        return images
-
-    def get_camera_params_sideview(self) -> Dict[str, Dict[str, np.ndarray]]:
-        """Get camera parameters from all cameras."""
-        params = OrderedDict()
-        for name, cam in self._render_cameras.items():
-            params[name] = cam.get_params()
-        return params
-
-    def _get_obs_images(self) -> OrderedDict:
-        if self._image_obs_mode == "hand_base":
-            return super()._get_obs_images()
-
-        if self._image_obs_mode == "sideview":
-            self.update_render_and_take_picture_sideview()
-            return OrderedDict(
-                agent=self._get_obs_agent(),
-                extra=self._get_obs_extra(),
-                camera_param=self.get_camera_params_sideview(),
-                image=self.get_images_sideview(),
-            )
-        elif self._image_obs_mode == "hand_front":
-            self.update_render_and_take_picture_sideview()
-            obs = OrderedDict(
-                agent=self._get_obs_agent(),
-                extra=self._get_obs_extra(),
-                camera_param=self.get_camera_params_sideview(),
-                image=self.get_images_sideview(),
-            )
-
-            self.update_render()
-            self.take_picture()
-            obs["camera_param"]["hand_camera"] = self._cameras["hand_camera"].get_params()
-            obs["image"]["hand_camera"] = self._cameras["hand_camera"].get_images()
-            return obs
-        else:
-            raise NotImplementedError(
-                f'image_obs_mode "{self._image_obs_mode}" not implemented'
-            )
-
-    def _setup_cameras(self):
-        super()._setup_cameras()
-
-        # poses = []
-        # if not self.real_setup:
-        #     poses.append(look_at([0.4, 0.4, 0.4], [0.0, 0.0, 0.2]))
-        #     poses.append(look_at([0.4, -0.4, 0.4], [0.0, 0.0, 0.2]))
-        # else:
-        #     poses.append(look_at([0.4, -1.1, 0.5], [0.4, 0.2, -0.2]))
-
-        # camera_configs = []
-        # for i, pose in enumerate(poses):
-        #     camera_cfg = CameraConfig(f"sideview_camera_{i}",
-        #                               pose.p, pose.q, 512, 512, 1, 0.01, 10)
-        #     camera_cfg.texture_names += ("Segmentation",)
-        #     camera_configs.append(camera_cfg)
-
-        # self._sideview_camera_cfgs = parse_camera_cfgs(camera_configs)
-
-        # self._sideview_cameras = OrderedDict()
-        # if self._renderer_type != "client":
-        #     for uid, camera_cfg in self._sideview_camera_cfgs.items():
-        #         self._sideview_cameras[uid] = Camera(
-        #             camera_cfg, self._scene, self._renderer_type
-        #         )
-
-    def _register_render_cameras(self):
-        camera_configs = []
-        if not self.real_setup:
-            pose1 = look_at([0.4, 0.4, 0.4], [0.0, 0.0, 0.2])
-            pose2 = look_at([0.4, -0.4, 0.4], [0.0, 0.0, 0.2])
-            camera_configs.extend([
-                CameraConfig(f"render_camera_1",
-                             pose1.p, pose1.q, 512, 512, 1, 0.01, 10),
-                CameraConfig(f"render_camera_2",
-                             pose2.p, pose2.q, 512, 512, 1, 0.01, 10),
-            ])
-        else:
-            #pose = look_at([0.4, -1.1, 0.5], [0.4, 0.2, -0.2])
-            # SAPIEN camera pose is forward(x), left(y) and up(z)
-            # T @ np.array([[0,-1,0,0],[0,0,-1,0],[1,0,0,0],[0,0,0,1]])
-            # Tb_b2c_20230512_FAH_front.npy
-            #pose = Pose([0.582913, -0.84103, 0.447668],
-            #            [0.663717, -0.156798, 0.153559, 0.715062])
-            # Tb_b2c_20230525_CSE4144_front.npy
-            #pose = Pose([0.270408, -1.13308, 0.376658],
-            #            [0.69311, -0.0656008, 0.0722545, 0.714195])
-            # Tb_b2c_20230623_CSE4144_front.npy
-            pose = Pose([0.252313, -1.13436, 0.368176],
-                        [0.693578, -0.0652475, 0.0552481, 0.71529])
-            camera_configs.append(
-                CameraConfig("render_camera", pose.p, pose.q, 848, 480,
-                             np.deg2rad(43.5), 0.01, 10)
-            )
-            if self.two_real_cameras:
-                pose2 = look_at([1.2, -0.1, 0.5], [0.3, -0.1, 0])
-                camera_configs.append(
-                    CameraConfig("render_camera_2", pose2.p, pose2.q, 848, 480,
-                                 np.deg2rad(43.5), 0.01, 10)
-                )
-
-        # Add Segmentation
-        for camera_cfg in camera_configs:
-            camera_cfg.texture_names += ("Segmentation",)
-
-        return camera_configs
-
-    def _clear(self):
-        super()._clear()
-        # self._sideview_cameras = OrderedDict()
-
-    def _render_rgb_pcd_images(
-        self, camera_params_dict=None, camera_captures_dict=None
-    ) -> Tuple[List[np.ndarray], List[np.ndarray], List[np.ndarray]]:
-        """
-        :return rgb_images: a list of [512, 512, 3] np.uint8 np.ndarray
-        :return xyz_images: a list of [512, 512, 3] np.float32 np.ndarray
-                            per-pixel xyz coordinates in world frame
-        :return xyz_masks: a list of [512, 512] np.bool np.ndarray
-                           per-pixel valid mask
-                           (in front of the far plane of camera frustum)
-        """
-        if camera_params_dict is None or camera_captures_dict is None:
-            self.update_render_and_take_picture_sideview()
-            camera_params_dict = self.get_camera_params_sideview()
-            camera_captures_dict = self.get_images_sideview()
-
-        rgb_images = []
-        xyz_images = []  # xyz_images in world coordinates
-        xyz_masks = []  # xyz_mask for valid points
-        for cam_name in camera_captures_dict.keys():
-            camera_params = camera_params_dict[cam_name]
-            camera_captures = camera_captures_dict[cam_name]
-
-            rgba = camera_captures["Color"]
-            rgb_images.append(
-                np.clip(rgba[:, :, :3] * 255, 0, 255).astype(np.uint8)
-            )
-
-            pos_depth = camera_captures["Position"]
-            xyz_image = pos_depth[:, :, :3]
-            xyz_masks.append(pos_depth[..., 3] < 1)
-
-            image_shape = xyz_image.shape[:2]
-            T = camera_params["cam2world_gl"]
-            xyz_image = xyz_image.reshape(-1, 3) @ T[:3, :3].T + T[:3, 3]
-            xyz_images.append(xyz_image.reshape(*image_shape, 3))
-
-        return rgb_images, xyz_images, xyz_masks
+            self.sam_current_stage = state[-self.num_stages:].astype(bool)
+            state = state[:-self.num_stages]
+        self.current_stage = state[-self.num_stages:].astype(bool)
+        self.goal_pos = state[-3-self.num_stages:-self.num_stages]
+        super().set_state(state[:-3-self.num_stages])
+        self._prev_actor_poses = {
+            self.cube.name: self.cube.get_pose(),
+            self.bowl.name: self.bowl.get_pose(),
+        }
 
 
-@register_env("PlaceCubeInBowlEasy-v0", max_episode_steps=20, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15)
-@register_env("PlaceCubeInBowlEasy-v1", max_episode_steps=20, extra_state_obs=True,
-              fix_init_bowl_pos=True, dist_cube_bowl=0.15,
+@register_env("PlaceCubeInBowlEasy-v0", max_episode_steps=20)
+@register_env("PlaceCubeInBowlEasy-v1", max_episode_steps=20,
               no_static_checks=True)
 class PlaceCubeInBowlEasyEnv(PlaceCubeInBowlEnv):
     """Environment where robot gripper starts at grasping cube position"""
