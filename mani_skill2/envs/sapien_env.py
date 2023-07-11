@@ -705,10 +705,6 @@ class BaseEnv(gym.Env):
             self.update_render()
             self.take_picture()
             cameras_images = self.get_images()
-            # Remove depth and Segmentation
-            for cam_name in cameras_images:
-                cameras_images[cam_name].pop("Segmentation", None)
-                cameras_images[cam_name].pop("Position", None)
 
             for camera_images in cameras_images.values():
                 images.extend(observations_to_images(camera_images))
