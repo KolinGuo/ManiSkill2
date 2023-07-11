@@ -372,6 +372,24 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             for uid, camera_cfg in self._render_camera_cfgs.items():
                 camera_cfg.p -= self.world_frame_delta_pos
 
+    def _setup_cameras(self):
+        """Call during reconfigure"""
+        super()._setup_cameras()
+
+        if self.use_random_camera_pose:
+            for cam_name, camera in self._cameras.items():
+                if cam_name not in ["hand_camera"]:
+                    orig_pose = camera.camera_cfg.pose
+                    delta_pose = Pose(
+                        p=self._episode_rng.uniform(-0.1, 0.1, size=3),
+                        q=euler2quat(*np.deg2rad(
+                            self._episode_rng.uniform(-10, 10, size=3)
+                        ))
+                    )
+                    self._cameras[cam_name].camera.set_pose(
+                        orig_pose * delta_pose
+                    )
+
     # ---------------------------------------------------------------------- #
     # Load model
     # ---------------------------------------------------------------------- #
@@ -442,7 +460,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self._prev_actor_poses = {}
         self.set_episode_rng(seed)
         _reconfigure = self._set_model(model_id, model_scale)
-        reconfigure = _reconfigure or reconfigure
+        reconfigure = (_reconfigure or reconfigure
+                       or self.use_random_camera_pose)
 
         obs = super().reset(seed=self._episode_seed, reconfigure=reconfigure)
 
@@ -1052,15 +1071,6 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         """When use_grounded_sam, all info keys without sam/ prefix is GT
         except for rewards during logging (rewards is sam_reward), gt_reward is GT
         """
-        if self.use_random_camera_pose:
-            orig_pose = self._render_cameras["render_camera"].camera_cfg.pose
-            delta_pose = Pose(
-                p=np.random.uniform(-0.1, 0.1, size=3),
-                q=euler2quat(*np.deg2rad(np.random.uniform(-10, 10, size=3)))
-            )
-            self._render_cameras["render_camera"].camera.set_pose(
-                orig_pose * delta_pose
-            )
         obs, reward, done, info = super().step(action)
 
         if self.use_grounded_sam:
