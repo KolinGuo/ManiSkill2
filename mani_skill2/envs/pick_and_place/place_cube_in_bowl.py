@@ -173,6 +173,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                  remove_agent_qvel_obs=False,
                  save_trajectory=False,
                  use_random_camera_pose=False,
+                 change_random_camera_pose_in_step=False,
                  **kwargs):
         if asset_root is None:
             asset_root = self.DEFAULT_ASSET_ROOT
@@ -227,6 +228,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self.cube_above_delta = cube_above_delta
         self.tcp_height_thres = tcp_height_thres
         self.use_random_camera_pose = use_random_camera_pose
+        self.change_random_camera_pose_in_step = change_random_camera_pose_in_step
 
         self.pmodel = None
 
@@ -367,7 +369,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         """Call during reconfigure"""
         super()._setup_cameras()
 
-        if self.use_random_camera_pose:
+        if self.use_random_camera_pose and not self.change_random_camera_pose_in_step:
             for cam_name, camera in self._cameras.items():
                 if cam_name not in ["hand_camera"]:
                     orig_pose = camera.camera_cfg.pose
@@ -452,7 +454,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self.set_episode_rng(seed)
         _reconfigure = self._set_model(model_id, model_scale)
         reconfigure = (_reconfigure or reconfigure
-                       or self.use_random_camera_pose)
+                       or (self.use_random_camera_pose and not self.change_random_camera_pose_in_step))
 
         obs = super().reset(seed=self._episode_seed, reconfigure=reconfigure)
 
@@ -1070,6 +1072,19 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         """When use_grounded_sam, all info keys without sam/ prefix is GT
         except for rewards during logging (rewards is sam_reward), gt_reward is GT
         """
+        if self.use_random_camera_pose and self.change_random_camera_pose_in_step:
+            for cam_name, camera in self._cameras.items():
+                if cam_name not in ["hand_camera"]:
+                    orig_pose = camera.camera_cfg.pose
+                    delta_pose = Pose(
+                        p=self._episode_rng.uniform(-0.1, 0.1, size=3),
+                        q=euler2quat(*np.deg2rad(
+                            self._episode_rng.uniform(-10, 10, size=3)
+                        ))
+                    )
+                    self._cameras[cam_name].camera.set_pose(
+                        orig_pose * delta_pose
+                    )
         obs, reward, done, info = super().step(action)
 
         if self.use_grounded_sam:
