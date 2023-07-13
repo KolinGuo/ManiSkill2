@@ -45,15 +45,7 @@ def get_axis_aligned_bbox_for_cube(cube_actor):
     return mins, maxs
 
 
-@register_env("PlaceCubeInBowl-v0", max_episode_steps=200,
-              extra_state_obs=False,
-              dist_cube_bowl=0.2, fix_init_bowl_pos=False)
-@register_env("PlaceCubeInBowl-v1", max_episode_steps=50,
-              dist_cube_bowl=0.2, fix_init_bowl_pos=False)
-@register_env("PlaceCubeInBowl-v2", max_episode_steps=50)
-@register_env("PlaceCubeInBowl-v3", max_episode_steps=50,
-              reward_mode="dense_v2",
-              no_robot_static_checks=True, success_needs_ungrasp=True)
+"""Need collision checks with new layout initialization method
 @register_env("PlaceCubeInBowl-v4", max_episode_steps=50,
               reward_mode="dense_v2",
               no_static_checks=True, success_needs_ungrasp=True,
@@ -80,6 +72,39 @@ def get_axis_aligned_bbox_for_cube(cube_actor):
               no_static_checks=True, success_needs_ungrasp=True,
               success_cube_above_only=True, goal_height_delta=0.08,
               check_collision_during_init=False)
+@register_env("PlaceCubeInBowlStaged-v7",
+              max_episode_steps=50,
+              reward_mode="sparse_staged_v3", stage_obs=True,
+              no_static_checks=True, stage2_check_stage1=False,
+              success_needs_ungrasp=True, check_collision_during_init=False)
+@register_env("PlaceCubeInBowlStaged-v8",
+              max_episode_steps=50,
+              reward_mode="sparse_staged_v3", stage_obs=True,
+              no_static_checks=True, stage2_check_stage1=False,
+              success_needs_ungrasp=True, check_collision_during_init=False,
+              robot_base_at_world_frame=True)
+@register_env("PlaceCubeInBowlStagedXArm-v8",
+              max_episode_steps=50,
+              reward_mode="sparse_staged_v3", stage_obs=True,
+              robot="xarm7_d435", image_obs_mode="hand_front",
+              no_static_checks=True, stage2_check_stage1=False,
+              success_needs_ungrasp=True, check_collision_during_init=False)
+@register_env("PlaceCubeInBowlSAMStagedXArm-v8",
+              max_episode_steps=50,
+              reward_mode="grounded_sam_sparse_staged_v3", stage_obs=True,
+              robot="xarm7_d435", image_obs_mode="hand_front",
+              no_static_checks=True, stage2_check_stage1=False,
+              success_needs_ungrasp=True, check_collision_during_init=False)
+"""
+@register_env("PlaceCubeInBowl-v0", max_episode_steps=200,
+              extra_state_obs=False,
+              dist_cube_bowl=0.2, fix_init_bowl_pos=False)
+@register_env("PlaceCubeInBowl-v1", max_episode_steps=50,
+              dist_cube_bowl=0.2, fix_init_bowl_pos=False)
+@register_env("PlaceCubeInBowl-v2", max_episode_steps=50)
+@register_env("PlaceCubeInBowl-v3", max_episode_steps=50,
+              reward_mode="dense_v2",
+              no_robot_static_checks=True, success_needs_ungrasp=True)
 @register_env("PlaceCubeInBowlXArm-v8", max_episode_steps=50,
               reward_mode="dense_v2",
               robot="xarm7_d435", image_obs_mode="hand_front",
@@ -110,29 +135,6 @@ def get_axis_aligned_bbox_for_cube(cube_actor):
               reward_mode="sparse_staged_v3", stage_obs=True,
               no_robot_static_checks=True, stage2_check_stage1=False,
               success_needs_ungrasp=True)
-@register_env("PlaceCubeInBowlStaged-v7",
-              max_episode_steps=50,
-              reward_mode="sparse_staged_v3", stage_obs=True,
-              no_static_checks=True, stage2_check_stage1=False,
-              success_needs_ungrasp=True, check_collision_during_init=False)
-@register_env("PlaceCubeInBowlStaged-v8",
-              max_episode_steps=50,
-              reward_mode="sparse_staged_v3", stage_obs=True,
-              no_static_checks=True, stage2_check_stage1=False,
-              success_needs_ungrasp=True, check_collision_during_init=False,
-              robot_base_at_world_frame=True)
-@register_env("PlaceCubeInBowlStagedXArm-v8",
-              max_episode_steps=50,
-              reward_mode="sparse_staged_v3", stage_obs=True,
-              robot="xarm7_d435", image_obs_mode="hand_front",
-              no_static_checks=True, stage2_check_stage1=False,
-              success_needs_ungrasp=True, check_collision_during_init=False)
-@register_env("PlaceCubeInBowlSAMStagedXArm-v8",
-              max_episode_steps=50,
-              reward_mode="grounded_sam_sparse_staged_v3", stage_obs=True,
-              robot="xarm7_d435", image_obs_mode="hand_front",
-              no_static_checks=True, stage2_check_stage1=False,
-              success_needs_ungrasp=True, check_collision_during_init=False)
 class PlaceCubeInBowlEnv(StationaryManipulationEnv):
     DEFAULT_ASSET_ROOT = "{ASSET_DIR}/mani_skill2_ycb"
     DEFAULT_MODEL_JSON = "info_pick_v0.json"
@@ -561,11 +563,11 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         if lin_vel > 1e-3 or ang_vel > 1e-2:
             self._settle(0.5)
 
-    def _initialize_cube_actor(self):
+    def _initialize_cube_actor(self, max_iter=100) -> bool:
+        """Returns if initialization succeeds or times out"""
         cube_half_z = self.cube_half_size[2]
 
-        within_table = False
-        while not within_table:
+        for _ in range(max_iter):
             if self.real_setup:
                 dist_cube_bowl = self._episode_rng.uniform(0.15, 0.4)
             else:
@@ -575,8 +577,12 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             cube_x = self.bowl.pose.p[0] + np.cos(cube_ori) * dist_cube_bowl
             cube_y = self.bowl.pose.p[1] + np.sin(cube_ori) * dist_cube_bowl
 
-            within_table = ((0 <= cube_x <= 0.668 - cube_half_z/2) and
-                            (-0.494 + cube_half_z/2 <= cube_y <= 0))
+            # within table
+            if ((0 <= cube_x <= 0.668 - cube_half_z/2)
+                    and (-0.494 + cube_half_z/2 <= cube_y <= 0)):
+                break
+        else:
+            return False
 
         cube_q = [1, 0, 0, 0]
         if self.obj_init_rot_z:
@@ -584,11 +590,18 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         cube_pose = Pose([cube_x, cube_y, cube_half_z], cube_q)
 
         self.cube.set_pose(cube_pose)
+        return True
 
-    def _initialize_actors(self):
-        """cubeA_ori is the angle from bowl to A"""
-        self._initialize_bowl_actor()
-        self._initialize_cube_actor()
+    def _initialize_actors(self, max_iter=10) -> bool:
+        """Returns if initialization succeeds or times out"""
+        for _ in range(max_iter):
+            self._initialize_bowl_actor()
+            if self._initialize_cube_actor():
+                return True
+
+        raise RuntimeError("Cannot sample bowl / cube positions on table.\n"
+                           f"Env state: {self.get_state().tolist()}")
+        return False
 
     def _check_collision(self, robot_qpos=None, num_steps=5) -> bool:
         def _check_actor_collision(actor) -> bool:
@@ -660,17 +673,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                 return True
         return False
 
-    def _initialize_agent(self):
+    def _initialize_agent(self, max_iter=10):
         super()._initialize_agent()
-
-        # ----- Check IK feasible and object visible-----
-        # Check if goal_ee_pose is feasible
-        while not self._check_feasible_grasp_pose(
-            self.bowl.pose.p + [0, 0, self.goal_height_delta]
-        ):
-            print("[ENV] No successful goal grasp pose found!")
-            self._initialize_actors()  # reinitialize bowl & cube pose
-            super()._initialize_agent()  # reset robot qpos and base_pose
 
         # Reset camera pose to original
         if self.use_random_camera_pose:
@@ -678,21 +682,55 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                 if cam_name not in ["hand_camera"]:
                     camera.camera.set_pose(camera.camera_cfg.pose)
 
-        # Check if init ee pose is feasible
-        #   and all objects are visible in at least one orig camera view
-        while not (self._check_feasible_grasp_pose(self.cube.pose.p)
-                   and self._check_object_visible()):
-            print("[ENV] No successful init grasp pose found!")
-            self._initialize_cube_actor()  # reinitialize cube pose
+        # ----- Check IK feasible and object visible-----
+        for _ in range(max_iter):
+            # Ensure goal_ee_pose is feasible
+            for _ in range(max_iter):
+                if self._check_feasible_grasp_pose(
+                    self.bowl.pose.p + [0, 0, self.goal_height_delta]
+                ):
+                    break
+                print("[ENV] No successful goal grasp pose found!")
+                self._initialize_actors()  # reinitialize bowl & cube pose
+                super()._initialize_agent()  # reset robot qpos and base_pose
+            else:
+                raise RuntimeError(
+                    "Cannot sample layout with valid goal grasp pose.\n"
+                    f"Env state: {self.get_state().tolist()}"
+                )
+
+            # Ensure init_ee_pose is feasible
+            #   and all objects are visible in at least one orig camera view
+            for _ in range(max_iter):
+                if (self._check_feasible_grasp_pose(self.cube.pose.p)
+                        and self._check_object_visible()):
+                    break
+                print("[ENV] No successful init grasp pose found!")
+                self._initialize_cube_actor()  # reinitialize cube pose
+            else:
+                print("[ENV] Timeout sampling cube pose, resample layout!")
+                self._initialize_actors()  # reinitialize bowl & cube pose
+                super()._initialize_agent()  # reset robot qpos and base_pose
+                continue  # go back to ensure goal_ee_pose
+            break
+        else:
+            raise RuntimeError("Cannot sample valid layout\n"
+                               f"Env state: {self.get_state().tolist()}")
 
         # Randomize camera pose while ensuring
         #   all objects are visible in at least one camera view
         if (self.use_random_camera_pose
                 and not self.random_camera_pose_per_step):
-            self._randomize_camera_pose()
-            while not self._check_object_visible():
-                print("[ENV] not all objects are visible!")
+            for _ in range(max_iter):
                 self._randomize_camera_pose()
+                if self._check_object_visible():
+                    break
+                print("[ENV] not all objects are visible!")
+            else:
+                raise RuntimeError(
+                    "Cannot sample random camera pose with all objects "
+                    f"visible.\nEnv state: {self.get_state().tolist()}"
+                )
 
     def _initialize_task(self, max_trials=100, verbose=False):
         super()._initialize_task()
