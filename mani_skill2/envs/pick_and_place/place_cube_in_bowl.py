@@ -561,7 +561,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         if lin_vel > 1e-3 or ang_vel > 1e-2:
             self._settle(0.5)
 
-    def _initialize_cube_actor(self, cube_ori=None):
+    def _initialize_cube_actor(self):
         cube_half_z = self.cube_half_size[2]
 
         within_table = False
@@ -570,8 +570,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                 dist_cube_bowl = self._episode_rng.uniform(0.15, 0.4)
             else:
                 dist_cube_bowl = self.dist_cube_bowl
-            if cube_ori is None:
-                cube_ori = self._episode_rng.uniform(0, 2 * np.pi)
+            cube_ori = self._episode_rng.uniform(0, 2 * np.pi)
 
             cube_x = self.bowl.pose.p[0] + np.cos(cube_ori) * dist_cube_bowl
             cube_y = self.bowl.pose.p[1] + np.sin(cube_ori) * dist_cube_bowl
@@ -586,10 +585,10 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
         self.cube.set_pose(cube_pose)
 
-    def _initialize_actors(self, cube_ori=None):
+    def _initialize_actors(self):
         """cubeA_ori is the angle from bowl to A"""
         self._initialize_bowl_actor()
-        self._initialize_cube_actor(cube_ori)
+        self._initialize_cube_actor()
 
     def _check_collision(self, robot_qpos=None, num_steps=5) -> bool:
         def _check_actor_collision(actor) -> bool:
