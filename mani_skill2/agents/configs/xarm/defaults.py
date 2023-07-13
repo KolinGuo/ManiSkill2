@@ -163,5 +163,5 @@ class XArm7D435DefaultConfig(XArmDefaultConfig):
             fov=np.deg2rad(43.5),
             near=0.01,
             far=10,
-            actor_uid="camera_link",
+            actor_uid="camera_color_frame",
         )
