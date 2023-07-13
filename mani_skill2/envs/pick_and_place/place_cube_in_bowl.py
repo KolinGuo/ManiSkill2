@@ -80,6 +80,11 @@ def get_axis_aligned_bbox_for_cube(cube_actor):
               no_static_checks=True, success_needs_ungrasp=True,
               success_cube_above_only=True, goal_height_delta=0.08,
               check_collision_during_init=False)
+@register_env("PlaceCubeInBowlXArm-v8", max_episode_steps=50,
+              reward_mode="dense_v2",
+              robot="xarm7_d435", image_obs_mode="hand_front",
+              no_static_checks=True, success_needs_ungrasp=True,
+              success_cube_above_only=True, goal_height_delta=0.08)
 @register_env("PlaceCubeInBowlStaged-v2",
               max_episode_steps=50,
               reward_mode="sparse_staged", stage_obs=True)
@@ -365,14 +370,6 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             for uid, camera_cfg in self._render_camera_cfgs.items():
                 camera_cfg.p -= self.world_frame_delta_pos
 
-    def _setup_cameras(self):
-        """Call during reconfigure"""
-        super()._setup_cameras()
-
-        if (self.use_random_camera_pose
-                and not self.random_camera_pose_per_step):
-            self._randomize_camera_pose()
-
     def _randomize_camera_pose(self):
         for cam_name, camera in self._cameras.items():
             if cam_name not in ["hand_camera"]:
@@ -383,9 +380,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                         self._episode_rng.uniform(-10, 10, size=3)
                     ))
                 )
-                self._cameras[cam_name].camera.set_pose(
-                    orig_pose * delta_pose
-                )
+                camera.camera.set_pose(orig_pose * delta_pose)
 
     # ---------------------------------------------------------------------- #
     # Load model
@@ -457,9 +452,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self._prev_actor_poses = {}
         self.set_episode_rng(seed)
         _reconfigure = self._set_model(model_id, model_scale)
-        reconfigure = (_reconfigure or reconfigure
-                       or (self.use_random_camera_pose
-                           and not self.random_camera_pose_per_step))
+        reconfigure = _reconfigure or reconfigure
 
         obs = super().reset(seed=self._episode_seed, reconfigure=reconfigure)
 
@@ -517,10 +510,13 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         for _ in range(sim_steps):
             self._scene.step()
 
-    def _initialize_bowl_actors(self):
+    def _initialize_bowl_actor(self):
         # The object will fall from a certain height
         if self.real_setup:
-            xy = self._episode_rng.uniform([0.4, -0.2], [0.55, 0.0], [2])
+            # 0.17 is bowl xy size_length
+            xy = self._episode_rng.uniform(
+                [0., -0.494+0.17/2], [0.668-0.17/2, 0.0], [2]
+            )
         elif self.fix_init_bowl_pos:
             xy = self._episode_rng.uniform([-0.1, -0.05], [0, 0.05], [2])
         else:
@@ -565,73 +561,89 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         if lin_vel > 1e-3 or ang_vel > 1e-2:
             self._settle(0.5)
 
-    def _initialize_actors(self, cube_ori=None):
-        """cubeA_ori is the angle from bowl to A"""
-        self._initialize_bowl_actors()
+    def _initialize_cube_actor(self, cube_ori=None):
+        cube_half_z = self.cube_half_size[2]
 
-        if self.real_setup:
-            dist_cube_bowl = self._episode_rng.uniform(0.15, 0.2)
-            if cube_ori is None:
-                cube_ori = self._episode_rng.uniform(np.pi, 2 * np.pi)
-        else:
-            dist_cube_bowl = self.dist_cube_bowl
+        within_table = False
+        while not within_table:
+            if self.real_setup:
+                dist_cube_bowl = self._episode_rng.uniform(0.15, 0.4)
+            else:
+                dist_cube_bowl = self.dist_cube_bowl
             if cube_ori is None:
                 cube_ori = self._episode_rng.uniform(0, 2 * np.pi)
 
-        cube_xy = self.bowl.pose.p[:2] + [np.cos(cube_ori) * dist_cube_bowl,
-                                          np.sin(cube_ori) * dist_cube_bowl]
+            cube_x = self.bowl.pose.p[0] + np.cos(cube_ori) * dist_cube_bowl
+            cube_y = self.bowl.pose.p[1] + np.sin(cube_ori) * dist_cube_bowl
+
+            within_table = ((0 <= cube_x <= 0.668 - cube_half_z/2) and
+                            (-0.494 + cube_half_z/2 <= cube_y <= 0))
 
         cube_q = [1, 0, 0, 0]
         if self.obj_init_rot_z:
             cube_q = euler2quat(0, 0, self._episode_rng.uniform(0, 2 * np.pi))
-        z = self.cube_half_size[2]
-        cube_pose = Pose([cube_xy[0], cube_xy[1], z], cube_q)
+        cube_pose = Pose([cube_x, cube_y, cube_half_z], cube_q)
 
         self.cube.set_pose(cube_pose)
 
-    def _check_collision(self, num_steps=5) -> bool:
+    def _initialize_actors(self, cube_ori=None):
+        """cubeA_ori is the angle from bowl to A"""
+        self._initialize_bowl_actor()
+        self._initialize_cube_actor(cube_ori)
+
+    def _check_collision(self, robot_qpos=None, num_steps=5) -> bool:
+        def _check_actor_collision(actor) -> bool:
+            """Check actor in collision by computing norm of velocities"""
+            lin_vel = np.linalg.norm(actor.velocity)
+            ang_vel = np.linalg.norm(actor.angular_velocity)
+            return lin_vel > 1e-3 or ang_vel > 1e-2
+
+        if robot_qpos is not None:
+            orig_robot_qpos = self.agent.robot.get_qpos()
+            self.agent.reset(robot_qpos)
+
         for _ in range(num_steps):
             self._scene.step()
 
-        lin_vel = np.linalg.norm(self.bowl.velocity)
-        ang_vel = np.linalg.norm(self.bowl.angular_velocity)
-        return lin_vel > 1e-3 or ang_vel > 1e-2
+        has_collision = (_check_actor_collision(self.bowl)
+                         or _check_actor_collision(self.cube))
 
-    def _initialize_agent(self):
-        super()._initialize_agent()
+        # Reset actor velocities
+        self.bowl.set_velocity(np.zeros(3))
+        self.bowl.set_angular_velocity(np.zeros(3))
+        self.cube.set_velocity(np.zeros(3))
+        self.cube.set_angular_velocity(np.zeros(3))
+        # NOTE: agent qvel / qacc / qf are reset by self.agent.reset()
+        if robot_qpos is not None:
+            self.agent.reset(orig_robot_qpos)
+
+        return has_collision
+
+    def _check_object_visible(self) -> bool:
+        """Check if all objects are visible in at least one camera view"""
+        image_obs = self._get_obs_images()["image"]
+        for cam_name, cam_capture in image_obs.items():
+            seg_mask = cam_capture["Segmentation"][..., 1]
+
+            cube_px_cnt = (seg_mask == self.cube.id).sum()
+            bowl_px_cnt = (seg_mask == self.bowl.id).sum()
+            if cube_px_cnt >= 400 and bowl_px_cnt >= 2500:
+                return True
+        return False
+
+    def _check_feasible_grasp_pose(self, cube_pos: np.ndarray) -> bool:
+        """Build a grasp pose at cube_pos, keeping gripper orientation.
+        Check if ee_pose is feasible and collision free using IK"""
         if self.pmodel is None:
             self.pmodel = self.agent.robot.create_pinocchio_model()
             self.ee_link_idx = self.agent.robot.get_links().index(self.tcp)
 
-        # Set agent qpos to be at grasping cube position #
-        # Build grasp pose
-        cube_pose = self.cube.pose.to_transformation_matrix()
-        cube_pos = cube_pose[:3, -1]
-        if self.control_mode == "pd_ee_delta_pos":  # ee position control
-            cur_ee_pose = self.tcp.pose
-            T_world_ee_poses = [Pose(cube_pos, cur_ee_pose.q)]
-        else:
-            # Get the cube axis that has larger angle with cube_to_bowl
-            cube_x_axis, cube_y_axis = cube_pose[:3, 0], cube_pose[:3, 1]
-            cube_to_bowl = self.bowl.pose.p - cube_pos
-            ang_cube_x = angle_between_vec(cube_to_bowl, cube_x_axis)
-            ang_cube_x = min(ang_cube_x, np.pi - ang_cube_x)
-            ang_cube_y = angle_between_vec(cube_to_bowl, cube_y_axis)
-            ang_cube_y = min(ang_cube_y, np.pi - ang_cube_y)
-            if ang_cube_x > ang_cube_y:
-                closing = cube_x_axis
-            else:
-                closing = cube_y_axis
-
-            T_world_ee_poses = [
-                self.agent.build_grasp_pose([0, 0, -1], closing, cube_pos),
-                self.agent.build_grasp_pose([0, 0, -1], -closing, cube_pos),
-            ]
+        T_world_ee_poses = [Pose(cube_pos, self.tcp.pose.q)]
         T_world_robot = self.agent.robot.pose
-        T_robot_ee_poses = [T_world_robot.inv().transform(T_we)
-                            for T_we in T_world_ee_poses]
+        T_robot_ee_poses = [
+            T_world_robot.inv().transform(T_we) for T_we in T_world_ee_poses
+        ]
 
-        # Compute IK
         cur_robot_qpos = self.agent.robot.get_qpos()
         for T_robot_ee in T_robot_ee_poses:
             qpos, success, error = self.pmodel.compute_inverse_kinematics(
@@ -640,25 +652,48 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                 max_iterations=100
             )
 
-            if (not self.check_collision_during_init) and success:
+            if (
+                success and  # feasible IK
+                not (self.check_collision_during_init  # check collision
+                     and self._check_collision(qpos))  # has collision
+            ):
                 self.robot_grasp_cube_qpos = qpos
-                break
-            elif self.check_collision_during_init:
-                # NOTE: turn off check collision, can lead to weird placement
-                if not success:  # No feasible IK
-                    continue
+                return True
+        return False
 
-                # Check collision
-                self.agent.robot.set_qpos(qpos)  # set to target qpos
-                if not self._check_collision():
-                    self.robot_grasp_cube_qpos = qpos
-                    self.agent.robot.set_qpos(cur_robot_qpos)  # Reset qpos
-                    break
-        else:
-            print("[ENV] No successful grasp pose found!")
-            # Attempt to reset bowl/cube position
-            self._initialize_actors()
-            self._initialize_agent()
+    def _initialize_agent(self):
+        super()._initialize_agent()
+
+        # ----- Check IK feasible and object visible-----
+        # Check if goal_ee_pose is feasible
+        while not self._check_feasible_grasp_pose(
+            self.bowl.pose.p + [0, 0, self.goal_height_delta]
+        ):
+            print("[ENV] No successful goal grasp pose found!")
+            self._initialize_actors()  # reinitialize bowl & cube pose
+            super()._initialize_agent()  # reset robot qpos and base_pose
+
+        # Reset camera pose to original
+        if self.use_random_camera_pose:
+            for cam_name, camera in self._cameras.items():
+                if cam_name not in ["hand_camera"]:
+                    camera.camera.set_pose(camera.camera_cfg.pose)
+
+        # Check if init ee pose is feasible
+        #   and all objects are visible in at least one orig camera view
+        while not (self._check_feasible_grasp_pose(self.cube.pose.p)
+                   and self._check_object_visible()):
+            print("[ENV] No successful init grasp pose found!")
+            self._initialize_cube_actor()  # reinitialize cube pose
+
+        # Randomize camera pose while ensuring
+        #   all objects are visible in at least one camera view
+        if (self.use_random_camera_pose
+                and not self.random_camera_pose_per_step):
+            self._randomize_camera_pose()
+            while not self._check_object_visible():
+                print("[ENV] not all objects are visible!")
+                self._randomize_camera_pose()
 
     def _initialize_task(self, max_trials=100, verbose=False):
         super()._initialize_task()
