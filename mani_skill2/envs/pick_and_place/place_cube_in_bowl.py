@@ -463,6 +463,24 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             self.current_traj["sam_obs"].append(self.recent_sam_obs)
         return obs
 
+    def reconfigure(self):
+        """Reconfigure the simulation scene instance.
+        This function should clear the previous scene, and create a new one.
+        """
+        super().reconfigure()
+
+        # Save current _scene and agent for collision checking
+        if self.check_collision_during_init:
+            self._scene_col = self._scene
+            self.agent_col = self.agent
+            self.bowl_col = self.bowl
+            self.cube_col = self.cube
+
+            # Check collision between these actors during init
+            self.check_col_actor_ids = (self.agent_col.robot_link_ids
+                                        + [self.bowl_col.id, self.cube_col.id])
+            super().reconfigure()
+
     def _set_model(self, model_id, model_scale):
         """Set the model id and scale. If not provided, choose one randomly."""
         reconfigure = False
@@ -563,11 +581,14 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         if lin_vel > 1e-3 or ang_vel > 1e-2:
             self._settle(0.5)
 
-    def _initialize_cube_actor(self, max_iter=100) -> bool:
+        # Initialize goal_pos
+        self.goal_pos = self.bowl.pose.p + [0, 0, self.goal_height_delta]
+
+    def _initialize_cube_actor(self, max_trials=100) -> bool:
         """Returns if initialization succeeds or times out"""
         cube_half_z = self.cube_half_size[2]
 
-        for _ in range(max_iter):
+        for _ in range(max_trials):
             if self.real_setup:
                 dist_cube_bowl = self._episode_rng.uniform(0.15, 0.4)
             else:
@@ -592,9 +613,9 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self.cube.set_pose(cube_pose)
         return True
 
-    def _initialize_actors(self, max_iter=10) -> bool:
+    def _initialize_actors(self, max_trials=10) -> bool:
         """Returns if initialization succeeds or times out"""
-        for _ in range(max_iter):
+        for _ in range(max_trials):
             self._initialize_bowl_actor()
             if self._initialize_cube_actor():
                 return True
@@ -603,33 +624,39 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                            f"Env state: {self.get_state().tolist()}")
         return False
 
-    def _check_collision(self, robot_qpos=None, num_steps=5) -> bool:
-        def _check_actor_collision(actor) -> bool:
-            """Check actor in collision by computing norm of velocities"""
-            lin_vel = np.linalg.norm(actor.velocity)
-            ang_vel = np.linalg.norm(actor.angular_velocity)
-            return lin_vel > 1e-3 or ang_vel > 1e-2
-
-        if robot_qpos is not None:
-            orig_robot_qpos = self.agent.robot.get_qpos()
-            self.agent.reset(robot_qpos)
-
-        for _ in range(num_steps):
-            self._scene.step()
-
-        has_collision = (_check_actor_collision(self.bowl)
-                         or _check_actor_collision(self.cube))
-
-        # Reset actor velocities
-        self.bowl.set_velocity(np.zeros(3))
-        self.bowl.set_angular_velocity(np.zeros(3))
-        self.cube.set_velocity(np.zeros(3))
-        self.cube.set_angular_velocity(np.zeros(3))
+    def _check_collision(self, robot_qpos=None, thres=1e-3,
+                         verbose=True) -> bool:  # FIXME: verbose
+        """Checks whether scene has collision in _scene_col"""
+        # Set agent and scene objects in _scene_col to match _scene
         # NOTE: agent qvel / qacc / qf are reset by self.agent.reset()
-        if robot_qpos is not None:
-            self.agent.reset(orig_robot_qpos)
+        self.agent_col.reset(self.agent.robot.get_qpos())
+        self.bowl_col.set_pose(self.bowl.pose)
+        self.cube_col.set_pose(self.cube.pose)
+        # Reset actor velocities
+        self.bowl_col.set_velocity(np.zeros(3))
+        self.bowl_col.set_angular_velocity(np.zeros(3))
+        self.cube_col.set_velocity(np.zeros(3))
+        self.cube_col.set_angular_velocity(np.zeros(3))
 
-        return has_collision
+        if robot_qpos is not None:
+            self.agent_col.reset(robot_qpos)
+
+        self._scene_col.step()  # step _scene_col once
+
+        for contact in self._scene_col.get_contacts():
+            for point in contact.points:
+                actor0, actor1 = contact.actor0, contact.actor1
+                if (
+                    actor0.id in self.check_col_actor_ids
+                    and actor1.id in self.check_col_actor_ids
+                    and (sep := point.separation) < 0
+                    and (impulse_norm := np.linalg.norm(point.impulse)) > thres
+                ):
+                    if verbose:
+                        print(f"[ENV] Contact: {actor0.name=}, {actor1.name=},"
+                              f" {sep = :.3e}, {impulse_norm = :.3e}")
+                    return True
+        return False
 
     def _check_object_visible(self) -> bool:
         """Check if all objects are visible in at least one camera view"""
@@ -673,7 +700,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                 return True
         return False
 
-    def _initialize_agent(self, max_iter=10):
+    def _initialize_agent(self, max_trials=10):
         super()._initialize_agent()
 
         # Reset camera pose to original
@@ -682,13 +709,11 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                 if cam_name not in ["hand_camera"]:
                     camera.camera.set_pose(camera.camera_cfg.pose)
 
-        # ----- Check IK feasible and object visible-----
-        for _ in range(max_iter):
+        # ----- Check IK feasible and object visible -----
+        for _ in range(max_trials):
             # Ensure goal_ee_pose is feasible
-            for _ in range(max_iter):
-                if self._check_feasible_grasp_pose(
-                    self.bowl.pose.p + [0, 0, self.goal_height_delta]
-                ):
+            for _ in range(max_trials):
+                if self._check_feasible_grasp_pose(self.goal_pos):
                     break
                 print("[ENV] No successful goal grasp pose found!")
                 self._initialize_actors()  # reinitialize bowl & cube pose
@@ -701,7 +726,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
             # Ensure init_ee_pose is feasible
             #   and all objects are visible in at least one orig camera view
-            for _ in range(max_iter):
+            for _ in range(max_trials):
                 if (self._check_feasible_grasp_pose(self.cube.pose.p)
                         and self._check_object_visible()):
                     break
@@ -721,7 +746,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         #   all objects are visible in at least one camera view
         if (self.use_random_camera_pose
                 and not self.random_camera_pose_per_step):
-            for _ in range(max_iter):
+            for _ in range(max_trials):
                 self._randomize_camera_pose()
                 if self._check_object_visible():
                     break
