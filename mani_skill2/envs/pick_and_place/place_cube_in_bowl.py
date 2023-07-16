@@ -24,6 +24,7 @@ from mani_skill2.utils.camera import resize_obs_images
 
 from pyrl.utils.data import GDict
 from real_robot.sensors.camera import CALIB_CAMERA_POSES
+from real_robot.utils.camera import depth2xyz, transform_points
 
 from .base_env import StationaryManipulationEnv
 from .pick_single import build_actor_ycb
@@ -174,13 +175,13 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                  tcp_height_thres=0.10,
                  ungrasp_sparse_reward=False,
                  ungrasp_reward_scale=1.0,
-                 gsam_track_cfg={},
                  robot_base_at_world_frame=False,
                  remove_obs_extra=[],
                  remove_agent_qvel_obs=False,
-                 save_trajectory=False,
                  use_random_camera_pose=False,
                  random_camera_pose_per_step=True,
+                 gsam_track_cfg={},
+                 save_trajectory=False,
                  **kwargs):
         if asset_root is None:
             asset_root = self.DEFAULT_ASSET_ROOT
@@ -246,27 +247,6 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
         self._check_assets()
 
-        # Grounded-SAM related #
-        self.use_grounded_sam = "grounded_sam" in kwargs.get(
-            "reward_mode", self.SUPPORTED_REWARD_MODES[0]
-        )
-        if self.use_grounded_sam:
-            self._initialize_grounded_sam(**gsam_track_cfg)
-            self.recent_sam_obs = None
-            self.recent_valid_sam_pts = {}
-            self.sam_current_stage = np.zeros(self.num_stages).astype(bool)
-        self.save_trajectory = save_trajectory
-        if self.save_trajectory:
-            self.episode_trajs = {}  # {traj_#: {key: value}}
-            self.current_traj = defaultdict(list)
-            self.episode_cnt = 0
-            self.save_traj_per_episode = 20
-            # Create folder to store training trajectory
-            self.sam_traj_dir = Path(os.environ["log_dir"]) / 'sam_train_traj'
-            if self.sam_traj_dir.is_dir():
-                shutil.rmtree(self.sam_traj_dir)
-            self.sam_traj_dir.mkdir(parents=True)
-
         # Image obs mode
         if image_obs_mode is None:
             image_obs_mode = self.SUPPORTED_IMAGE_OBS_MODES[0]
@@ -276,6 +256,14 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             )
         self._image_obs_mode = image_obs_mode
         self.image_obs_shape = image_obs_shape
+
+        # Grounded-SAM related #
+        self.use_grounded_sam = "grounded_sam" in kwargs.get(
+            "reward_mode", self.SUPPORTED_REWARD_MODES[0]
+        )
+        self.save_trajectory = save_trajectory
+        if self.use_grounded_sam:
+            self._initialize_gsam(**gsam_track_cfg)
 
         from real_robot.envs.base_env import XArmBaseEnv
         if not isinstance(self, XArmBaseEnv):
@@ -431,25 +419,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         # reset stage obs
         self.current_stage = np.zeros(self.num_stages).astype(bool)
         if self.use_grounded_sam:
-            self.recent_sam_obs = None
-            self.recent_valid_sam_pts = {}
-            self.sam_current_stage = np.zeros(self.num_stages).astype(bool)
-
-            # Save training trajectory
-            if self.save_trajectory:
-                # save only if current episode has at least stepped once
-                if "action" in self.current_traj:
-                    self.episode_cnt += 1
-
-                    traj_name = f"traj_{self.episode_cnt}"
-                    self.episode_trajs[traj_name] = self.current_traj
-
-                    if self.episode_cnt % self.save_traj_per_episode == 0:
-                        GDict(self.episode_trajs).to_hdf5(
-                            self.sam_traj_dir / f"{traj_name}.h5"
-                        )
-                        self.episode_trajs = {}
-                self.current_traj = defaultdict(list)
+            self._reset_gsam()
 
         self._prev_actor_poses = {}
         self.set_episode_rng(seed)
@@ -772,13 +742,13 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
     # ---------------------------------------------------------------------- #
     # Grounded-SAM related
     # ---------------------------------------------------------------------- #
-    def _initialize_grounded_sam(
+    def _initialize_gsam(
         self, aot_max_len_long_term=2,
         predict_gap=10,
         prompt_with_robot_arm=True, device="cuda",
         voxel_downsample_size=0.005, nb_neighbors=20, std_ratio=0.005,
         **kwargs
-    ):
+    ) -> None:
         """
         :param predict_gap: run grounded_sam per predict_gap frames
                             use mask tracking for the rest
@@ -799,6 +769,42 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self.voxel_downsample_size = voxel_downsample_size
         self.nb_neighbors = nb_neighbors
         self.std_ratio = std_ratio
+
+        self.recent_sam_obs = None
+        self.recent_valid_sam_pts = {}
+        self.sam_current_stage = np.zeros(self.num_stages).astype(bool)
+
+        if self.save_trajectory:
+            self.episode_trajs = {}  # {traj_#: {key: value}}
+            self.current_traj = defaultdict(list)
+            self.episode_cnt = 0
+            self.save_traj_per_episode = 20
+            # Create folder to store training trajectory
+            self.sam_traj_dir = Path(os.environ["log_dir"]) / 'sam_train_traj'
+            if self.sam_traj_dir.is_dir():
+                shutil.rmtree(self.sam_traj_dir)
+            self.sam_traj_dir.mkdir(parents=True)
+
+    def _reset_gsam(self) -> None:
+        self.recent_sam_obs = None
+        self.recent_valid_sam_pts = {}
+        self.sam_current_stage = np.zeros(self.num_stages).astype(bool)
+
+        # Save training trajectory
+        if self.save_trajectory:
+            # save only if current episode has at least stepped once
+            if "action" in self.current_traj:
+                self.episode_cnt += 1
+
+                traj_name = f"traj_{self.episode_cnt}"
+                self.episode_trajs[traj_name] = self.current_traj
+
+                if self.episode_cnt % self.save_traj_per_episode == 0:
+                    GDict(self.episode_trajs).to_hdf5(
+                        self.sam_traj_dir / f"{traj_name}.h5"
+                    )
+                    self.episode_trajs = {}
+            self.current_traj = defaultdict(list)
 
     @staticmethod
     def _process_pts(
@@ -849,21 +855,230 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             camera_params = camera_params_dict[cam_name]
             camera_captures = camera_captures_dict[cam_name]
 
-            rgba = camera_captures["Color"]
-            rgb_images.append(
-                np.clip(rgba[:, :, :3] * 255, 0, 255).astype(np.uint8)
-            )
+            if "rgb" in camera_captures:
+                rgb_images.append(camera_captures["rgb"])
+            else:
+                rgba = camera_captures["Color"]
+                rgb_images.append(
+                    np.clip(rgba[:, :, :3] * 255, 0, 255).astype(np.uint8)
+                )
 
-            pos_depth = camera_captures["Position"]
-            xyz_image = pos_depth[:, :, :3]
-            xyz_masks.append(pos_depth[..., 3] < 1)
+            if "depth" in camera_captures:  # real_robot env
+                depth_image = camera_captures["depth"]
+                depth_scale = 1000.0 if depth_image.dtype == np.uint16 else 1.0
+                xyz_image = depth2xyz(depth_image,
+                                      camera_params["intrinsic_cv"],
+                                      depth_scale)
+                xyz_image = transform_points(xyz_image,
+                                             camera_params["cam2world_cv"])
+                xyz_images.append(xyz_image)
+                xyz_masks.append(None)
+            else:
+                pos_depth = camera_captures["Position"]
+                xyz_image = pos_depth[:, :, :3]
+                xyz_masks.append(pos_depth[..., 3] < 1)
 
-            image_shape = xyz_image.shape[:2]
-            T = camera_params["cam2world_gl"]
-            xyz_image = xyz_image.reshape(-1, 3) @ T[:3, :3].T + T[:3, 3]
-            xyz_images.append(xyz_image.reshape(*image_shape, 3))
+                xyz_image = transform_points(xyz_image,
+                                             camera_params["cam2world_gl"])
+                xyz_images.append(xyz_image)
 
         return rgb_images, xyz_images, xyz_masks
+
+    def _get_obs_gsam(self, obs: OrderedDict) -> None:
+        """Run Grounded-SAM and store
+        following observation to self.recent_sam_obs.
+        :return sam_rgb_images: a [n_cams, 512, 512, 3] np.uint8 np.ndarray
+        :return sam_xyz_images: a [n_cams, 512, 512, 3] np.float32 np.ndarray
+                                per-pixel xyz coordinates in world frame
+        :return sam_xyz_masks: a [n_cams, 512, 512] np.bool np.ndarray
+                               per-pixel valid mask
+                               (in front of the far plane of camera frustum)
+        :return pred_masks: predicted mask for sam_rgb_images,
+                            a [n_cams, 512, 512] np.uint8 np.ndarray
+                            mask value is index+1 in object_texts
+        :return pred_phrases: a list of n_cams [n_boxes] list of pred_phrases
+        :return boxes_filt: a list of n_cams[n_boxes, 4] np.ndarray
+        :return object_pcds: {object_text: object_pcd}
+                             object_pcd is a [n_pts, 3] np.ndarray
+        :return object_filt_pcds: filtered points, {object_text: object_pcd}
+                                  object_pcd is a [n_pts, 3] np.ndarray
+        """
+        # Render observation for grounded_sam_track
+        kwargs = {}
+        # Already rendered grounded_sam image views
+        if self._obs_mode == "image":
+            kwargs["camera_params_dict"] = obs["camera_param"]
+            kwargs["camera_captures_dict"] = obs["image"]
+
+        rgb_images, xyz_images, xyz_masks = self._render_rgb_pcd_images(
+            **kwargs
+        )
+        n_cams = len(rgb_images)
+        self.grounded_sam_track.ensure_num_segtracker(n_cams)
+
+        # Images are of shape [n_cams, H, W, 3]
+        # Masks are of shape [n_cams, H, W]
+        rgb_images = np.stack(rgb_images, axis=0)
+        xyz_images = np.stack(xyz_images, axis=0)
+        xyz_masks = np.stack(xyz_masks, axis=0)
+        H, W = rgb_images.shape[1:-1]
+
+        sam_obs = OrderedDict()
+        # sam_obs["sam_rgb_images"] = rgb_images
+        # sam_obs["sam_xyz_images"] = xyz_images
+        # sam_obs["sam_xyz_masks"] = xyz_masks
+
+        # Run grounded_sam_track
+        ret_dict = self.grounded_sam_track.predict_and_track_batch(
+            rgb_images,
+            [self._elapsed_steps] * n_cams,
+            self.env_object_texts,
+            xyz_masks,
+        )
+        ret_dict["pred_masks"] = np.stack(ret_dict["pred_masks"], axis=0)
+        sam_obs.update(ret_dict)
+        pred_masks = ret_dict["pred_masks"]  # [n_cams, H, W]
+
+        # Extract pcd from xyz_images
+        object_pcds = {}
+        object_filt_pcds = {}
+        for i, object_text in enumerate(self.env_object_texts):
+            object_pcd = xyz_images[pred_masks == i+1]
+            object_pcds[object_text] = object_pcd
+            object_filt_pcds[object_text] = self._process_pts(
+                object_pcd, self.voxel_downsample_size,
+                self.nb_neighbors, self.std_ratio
+            )
+        sam_obs["object_pcds"] = object_pcds
+        sam_obs["object_filt_pcds"] = object_filt_pcds
+
+        self.recent_sam_obs = sam_obs
+
+        # TODO: double check, copied from get_images_sideview()
+        # Save gt mask for calculate SAM pred_mask iou, [n_cams, H, W]
+        self._recent_gt_actor_mask = np.stack(
+            [d["Segmentation"][..., 1] for d in obs["image"].values()],
+            axis=0
+        )
+
+    def _step_gsam(self, info: dict) -> dict:
+        """When use_grounded_sam, all info keys without sam/ prefix is GT
+        except for rewards during logging (rewards is sam_reward), gt_reward is GT
+        """
+        # Update info dict
+        sam_eval_dict = info.pop("sam_eval_dict")
+        for k, v in sam_eval_dict.items():
+            # all sam related info are prefixed with sam/
+            info[f"sam/{k}"] = v
+
+            # Skip accuracy computation for these keys
+            if ("mask_iou" in k or "pos_dist" in k or "bbox_iou" in k
+                    or "visible" in k):
+                continue
+
+            # Add accuracy eval info
+            if isinstance(v, float):
+                if k == "reward":
+                    info[f"sam/{k}_diff"] = v - info["sam/gt_reward"]
+                else:
+                    info[f"sam/{k}_diff"] = v - info[k]
+            else:  # boolean
+                info[f"sam/{k}_acc"] = (v == info[k])
+        return info
+
+    def _get_info_gsam(self) -> dict:
+        """Get Grounded-SAM related step info"""
+        cube_pts = self.recent_sam_obs["object_filt_pcds"][self.env_object_texts[0]]
+        bowl_pts = self.recent_sam_obs["object_filt_pcds"][self.env_object_texts[1]]
+
+        # If object is not visible, use last visible pts as current obs
+        if cube_pts.size == 0:
+            cube_pts = self.recent_valid_sam_pts[self.env_object_texts[0]]
+            cube_visible = False
+        else:
+            self.recent_valid_sam_pts[self.env_object_texts[0]] = cube_pts
+            cube_visible = True
+        if bowl_pts.size == 0:
+            bowl_pts = self.recent_valid_sam_pts[self.env_object_texts[1]]
+            bowl_visible = False
+        else:
+            self.recent_valid_sam_pts[self.env_object_texts[1]] = bowl_pts
+            bowl_visible = True
+
+        # Extract position
+        #cube_pos = np.mean(cube_pts, axis=0)
+        #bowl_pos = np.mean(bowl_pts, axis=0)
+        # Extract bbox from object_pts
+        cube_mins, cube_maxs = cube_pts.min(0), cube_pts.max(0)
+        bowl_mins, bowl_maxs = bowl_pts.min(0), bowl_pts.max(0)
+        # Extract position from bbox
+        cube_pos = np.mean([cube_mins, cube_maxs], axis=0)
+        bowl_pos = np.mean([bowl_mins, bowl_maxs], axis=0)
+
+        tcp_to_cube_dist = np.linalg.norm(cube_pos - self.tcp.pose.p)
+        is_cube_inside = self.check_cube_inside(
+            bowl_bbox=(bowl_mins, bowl_maxs),
+            cube_bbox=(cube_mins, cube_maxs)
+        )
+        is_cube_grasped = bool(self.agent.robot.get_qpos()[-2:].sum() < 0.07)
+        is_bowl_upwards = True  # NOTE: no checks, assume always True
+        is_gripper_high_enough = self.tcp.pose.p[2] >= self.tcp_height_thres
+
+        # Compute pred_mask iou
+        cube_mask_iou = self.get_mask_iou(
+            self.recent_sam_obs["pred_masks"] == 1,
+            self._recent_gt_actor_mask == self.cube.id
+        )
+        bowl_mask_iou = self.get_mask_iou(
+            self.recent_sam_obs["pred_masks"] == 2,
+            self._recent_gt_actor_mask == self.bowl.id
+        )
+
+        # Compute position difference
+        cube_pos_dist = np.linalg.norm(cube_pos - self.cube.pose.p)
+        bowl_pos_dist = np.linalg.norm(bowl_pos - self.bowl.pose.p)
+
+        # Compute pred_bbox iou
+        cube_bbox_iou = self.get_bbox_iou(
+            *get_axis_aligned_bbox_for_cube(self.cube),
+            cube_mins, cube_maxs
+        )
+        bowl_bbox_iou = self.get_bbox_iou(
+            *get_axis_aligned_bbox_for_actor(self.bowl),
+            bowl_mins, bowl_maxs
+        )
+
+        assert self.no_static_checks, "There are still static checks"
+        sam_eval_dict = dict(
+            cube_visible=cube_visible,
+            bowl_visible=bowl_visible,
+            cube_mask_iou=cube_mask_iou,
+            bowl_mask_iou=bowl_mask_iou,
+            cube_pos_dist=cube_pos_dist,
+            bowl_pos_dist=bowl_pos_dist,
+            cube_bbox_iou=cube_bbox_iou,
+            bowl_bbox_iou=bowl_bbox_iou,
+            tcp_to_cube_dist=tcp_to_cube_dist,
+            is_cube_inside=is_cube_inside,
+            is_cube_grasped=is_cube_grasped,
+            is_bowl_upwards=is_bowl_upwards,
+            success=(is_cube_inside and is_bowl_upwards
+                     and (not is_cube_grasped))
+        )
+
+        if self.success_needs_high_gripper:
+            sam_eval_dict["success"] = (sam_eval_dict["success"]
+                                        and is_gripper_high_enough)
+
+        if "sparse_staged" in self._reward_mode:
+            self.sam_current_stage = self.get_current_stage(
+                sam_eval_dict, self.sam_current_stage
+            )
+            sam_eval_dict.update(
+                in_stage1=self.sam_current_stage[0],
+                in_stage2=self.sam_current_stage[1],
+            )
+        return sam_eval_dict
 
     # ---------------------------------------------------------------------- #
     # Observation
@@ -916,86 +1131,12 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         return obs
 
     def get_obs(self) -> OrderedDict:
-        """Wrapper for get_obs(). If using grounded_sam,
-        store following observation to self.recent_sam_obs.
-        :return sam_rgb_images: a [n_cams, 512, 512, 3] np.uint8 np.ndarray
-        :return sam_xyz_images: a [n_cams, 512, 512, 3] np.float32 np.ndarray
-                                per-pixel xyz coordinates in world frame
-        :return sam_xyz_masks: a [n_cams, 512, 512] np.bool np.ndarray
-                               per-pixel valid mask
-                               (in front of the far plane of camera frustum)
-        :return pred_masks: predicted mask for sam_rgb_images,
-                            a [n_cams, 512, 512] np.uint8 np.ndarray
-                            mask value is index+1 in object_texts
-        :return pred_phrases: a list of n_cams [n_boxes] list of pred_phrases
-        :return boxes_filt: a list of n_cams[n_boxes, 4] np.ndarray
-        :return object_pcds: {object_text: object_pcd}
-                             object_pcd is a [n_pts, 3] np.ndarray
-        :return object_filt_pcds: filtered points, {object_text: object_pcd}
-                                  object_pcd is a [n_pts, 3] np.ndarray
-        """
+        """Wrapper for get_obs()"""
         obs = super().get_obs()
 
         # Store grounded_sam image observation
         if self.use_grounded_sam:
-            # Render observation for grounded_sam_track
-            kwargs = {}
-            # Already rendered grounded_sam image views
-            if self._obs_mode == "image":
-                kwargs["camera_params_dict"] = obs["camera_param"]
-                kwargs["camera_captures_dict"] = obs["image"]
-
-            rgb_images, xyz_images, xyz_masks = self._render_rgb_pcd_images(
-                **kwargs
-            )
-            n_cams = len(rgb_images)
-            self.grounded_sam_track.ensure_num_segtracker(n_cams)
-
-            # Images are of shape [n_cams, H, W, 3]
-            # Masks are of shape [n_cams, H, W]
-            rgb_images = np.stack(rgb_images, axis=0)
-            xyz_images = np.stack(xyz_images, axis=0)
-            xyz_masks = np.stack(xyz_masks, axis=0)
-            H, W = rgb_images.shape[1:-1]
-
-            sam_obs = OrderedDict()
-            # sam_obs["sam_rgb_images"] = rgb_images
-            # sam_obs["sam_xyz_images"] = xyz_images
-            # sam_obs["sam_xyz_masks"] = xyz_masks
-
-            # Run grounded_sam_track
-            ret_dict = self.grounded_sam_track.predict_and_track_batch(
-                rgb_images,
-                [self._elapsed_steps] * n_cams,
-                self.env_object_texts,
-                xyz_masks,
-                np.arange(n_cams)
-            )
-            ret_dict["pred_masks"] = np.stack(ret_dict["pred_masks"], axis=0)
-            sam_obs.update(ret_dict)
-            pred_masks = ret_dict["pred_masks"]  # [n_cams, H, W]
-
-            # Extract pcd from xyz_images
-            object_pcds = {}
-            object_filt_pcds = {}
-            for i, object_text in enumerate(self.env_object_texts):
-                object_pcd = xyz_images[pred_masks == i+1]
-                object_pcds[object_text] = object_pcd
-                object_filt_pcds[object_text] = self._process_pts(
-                    object_pcd, self.voxel_downsample_size,
-                    self.nb_neighbors, self.std_ratio
-                )
-            sam_obs["object_pcds"] = object_pcds
-            sam_obs["object_filt_pcds"] = object_filt_pcds
-
-            self.recent_sam_obs = sam_obs
-
-            # TODO: double check, copied from get_images_sideview()
-            # Save gt mask for calculate SAM pred_mask iou, [n_cams, H, W]
-            self._recent_gt_actor_mask = np.stack(
-                [d["Segmentation"][..., 1] for d in obs["image"].values()],
-                axis=0
-            )
+            self._get_obs_gsam(obs)
 
         if self._obs_mode == "image":
             # Remove Segmentation
@@ -1179,25 +1320,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         obs, reward, done, info = super().step(action)
 
         if self.use_grounded_sam:
-            # Update info dict
-            sam_eval_dict = info.pop("sam_eval_dict")
-            for k, v in sam_eval_dict.items():
-                # all sam related info are prefixed with sam/
-                info[f"sam/{k}"] = v
-
-                # Skip accuracy computation for these keys
-                if ("mask_iou" in k or "pos_dist" in k or "bbox_iou" in k
-                        or "visible" in k):
-                    continue
-
-                # Add accuracy eval info
-                if isinstance(v, float):
-                    if k == "reward":
-                        info[f"sam/{k}_diff"] = v - info["sam/gt_reward"]
-                    else:
-                        info[f"sam/{k}_diff"] = v - info[k]
-                else:  # boolean
-                    info[f"sam/{k}_acc"] = (v == info[k])
+            info = self._step_gsam(info)
 
         if self.use_grounded_sam and self.save_trajectory:
             self.current_traj["env_states"].append(self.get_state())
@@ -1358,98 +1481,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         info = super().get_info(**kwargs)
 
         if self.use_grounded_sam:
-            cube_pts = self.recent_sam_obs["object_filt_pcds"][self.env_object_texts[0]]
-            bowl_pts = self.recent_sam_obs["object_filt_pcds"][self.env_object_texts[1]]
-
-            # If object is not visible, use last visible pts as current obs
-            if cube_pts.size == 0:
-                cube_pts = self.recent_valid_sam_pts[self.env_object_texts[0]]
-                cube_visible = False
-            else:
-                self.recent_valid_sam_pts[self.env_object_texts[0]] = cube_pts
-                cube_visible = True
-            if bowl_pts.size == 0:
-                bowl_pts = self.recent_valid_sam_pts[self.env_object_texts[1]]
-                bowl_visible = False
-            else:
-                self.recent_valid_sam_pts[self.env_object_texts[1]] = bowl_pts
-                bowl_visible = True
-
-            # Extract position
-            #cube_pos = np.mean(cube_pts, axis=0)
-            #bowl_pos = np.mean(bowl_pts, axis=0)
-            # Extract bbox from object_pts
-            cube_mins, cube_maxs = cube_pts.min(0), cube_pts.max(0)
-            bowl_mins, bowl_maxs = bowl_pts.min(0), bowl_pts.max(0)
-            # Extract position from bbox
-            cube_pos = np.mean([cube_mins, cube_maxs], axis=0)
-            bowl_pos = np.mean([bowl_mins, bowl_maxs], axis=0)
-
-            tcp_to_cube_dist = np.linalg.norm(cube_pos - self.tcp.pose.p)
-            is_cube_inside = self.check_cube_inside(
-                bowl_bbox=(bowl_mins, bowl_maxs),
-                cube_bbox=(cube_mins, cube_maxs)
-            )
-            is_cube_grasped = bool(self.agent.robot.get_qpos()[-2:].sum() < 0.07)
-            is_bowl_upwards = True  # NOTE: no checks, assume always True
-            is_gripper_high_enough = self.tcp.pose.p[2] >= self.tcp_height_thres
-
-            # Compute pred_mask iou
-            cube_mask_iou = self.get_mask_iou(
-                self.recent_sam_obs["pred_masks"] == 1,
-                self._recent_gt_actor_mask == self.cube.id
-            )
-            bowl_mask_iou = self.get_mask_iou(
-                self.recent_sam_obs["pred_masks"] == 2,
-                self._recent_gt_actor_mask == self.bowl.id
-            )
-
-            # Compute position difference
-            cube_pos_dist = np.linalg.norm(cube_pos - self.cube.pose.p)
-            bowl_pos_dist = np.linalg.norm(bowl_pos - self.bowl.pose.p)
-
-            # Compute pred_bbox iou
-            cube_bbox_iou = self.get_bbox_iou(
-                *get_axis_aligned_bbox_for_cube(self.cube),
-                cube_mins, cube_maxs
-            )
-            bowl_bbox_iou = self.get_bbox_iou(
-                *get_axis_aligned_bbox_for_actor(self.bowl),
-                bowl_mins, bowl_maxs
-            )
-
-            assert self.no_static_checks, "There are still static checks"
-            sam_eval_dict = dict(
-                cube_visible=cube_visible,
-                bowl_visible=bowl_visible,
-                cube_mask_iou=cube_mask_iou,
-                bowl_mask_iou=bowl_mask_iou,
-                cube_pos_dist=cube_pos_dist,
-                bowl_pos_dist=bowl_pos_dist,
-                cube_bbox_iou=cube_bbox_iou,
-                bowl_bbox_iou=bowl_bbox_iou,
-                tcp_to_cube_dist=tcp_to_cube_dist,
-                is_cube_inside=is_cube_inside,
-                is_cube_grasped=is_cube_grasped,
-                is_bowl_upwards=is_bowl_upwards,
-                success=(is_cube_inside and is_bowl_upwards
-                         and (not is_cube_grasped))
-            )
-
-            if self.success_needs_high_gripper:
-                sam_eval_dict["success"] = (sam_eval_dict["success"]
-                                            and is_gripper_high_enough)
-
-            if "sparse_staged" in self._reward_mode:
-                self.sam_current_stage = self.get_current_stage(
-                    sam_eval_dict, self.sam_current_stage
-                )
-                sam_eval_dict.update(
-                    in_stage1=self.sam_current_stage[0],
-                    in_stage2=self.sam_current_stage[1],
-                )
-
-            info.update(sam_eval_dict=sam_eval_dict)
+            info.update(sam_eval_dict=self._get_info_gsam())
 
         return info
 
