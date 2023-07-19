@@ -149,7 +149,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
     def __init__(self, *args,
                  asset_root: str = None,
                  model_json: str = None,
-                 model_ids: List[str] = ('024_green_bowl'),
+                 model_ids: List[str] = ('green_bowl'),
                  image_obs_mode=None,
                  image_obs_shape=(128, 128),
                  obj_init_rot_z=True,
