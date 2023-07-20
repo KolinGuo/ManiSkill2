@@ -25,7 +25,7 @@ def resize_obs_images(obs: OrderedDict, new_size: Tuple[int],
                 resized_image = cv2.resize(
                     image.astype(np.uint16),
                     new_size, interpolation=interpolation
-                ).astype(np.uint32)
+                ).astype(image.dtype)
             else:
                 raise ValueError(f"Unknown key {key}")
             # Keep the same number of channels as input

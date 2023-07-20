@@ -152,6 +152,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                  model_ids: List[str] = ('green_bowl'),
                  image_obs_mode=None,
                  image_obs_shape=(128, 128),
+                 bg_mask_obs=False,
                  obj_init_rot_z=True,
                  obj_init_rot=0,
                  extra_state_obs=True,
@@ -256,6 +257,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             )
         self._image_obs_mode = image_obs_mode
         self.image_obs_shape = image_obs_shape
+        self.bg_mask_obs = bg_mask_obs
 
         # Grounded-SAM related #
         self.use_grounded_sam = "grounded_sam" in kwargs.get(
@@ -405,7 +407,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self.bowl.name = self.model_id
 
     def _load_actors(self):
-        self._add_ground(render=self.bg_name is None)
+        self.ground = self._add_ground(render=self.bg_name is None)
         self._load_model()
         self.bowl.set_damping(0.1, 0.1)
         self.cube = self._build_cube(self.cube_half_size,
@@ -1140,8 +1142,14 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
         if self._obs_mode == "image":
             # Remove Segmentation
-            for cam_name in obs["image"]:
-                obs["image"][cam_name].pop("Segmentation", None)
+            for cam_name, cam_obs in obs["image"].items():
+                if self.bg_mask_obs:
+                    actor_mask = cam_obs["Segmentation"][..., [1]]
+                    cam_obs["Segmentation"] = (
+                        (actor_mask == 0) | (actor_mask == self.ground.id)
+                    )
+                else:
+                    cam_obs.pop("Segmentation", None)
             obs = resize_obs_images(obs, self.image_obs_shape)
 
         return obs

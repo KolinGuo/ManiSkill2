@@ -24,9 +24,16 @@ class RGBDObservationWrapper(gym.ObservationWrapper):
         self.obs_mode = obs_mode
         self.observation_space = deepcopy(env.observation_space)
         # Remove Position from camera obs space
-        if self.obs_mode == "rgb":
-            [cam_space.spaces.pop("Position", None)
-             for cam_space in self.observation_space["image"].spaces.values()]
+        for cam_space in self.observation_space["image"].spaces.values():
+            if self.obs_mode == "rgb":
+                cam_space.spaces.pop("Position", None)
+            if env.bg_mask_obs:
+                height, width = cam_space["Segmentation"].shape[:2]
+                cam_space.spaces["Segmentation"] = spaces.Box(
+                    False, True, shape=(height, width, 1), dtype=bool
+                )  # NOTE: sample() gives wrong values
+            else:
+                cam_space.spaces.pop("Segmentation", None)
         self.update_observation_space(self.observation_space)
 
     @staticmethod
