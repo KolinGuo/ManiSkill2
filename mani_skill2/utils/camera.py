@@ -21,7 +21,7 @@ def resize_obs_images(obs: OrderedDict, new_size: Tuple[int],
                     image,
                     new_size, interpolation=interpolation
                 )
-            elif key == "Segmentation":
+            elif key in ["Segmentation", "bg_mask"]:
                 resized_image = cv2.resize(
                     image.astype(np.uint16),
                     new_size, interpolation=interpolation

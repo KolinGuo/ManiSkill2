@@ -1143,13 +1143,12 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         if self._obs_mode == "image":
             # Remove Segmentation
             for cam_name, cam_obs in obs["image"].items():
+                seg_obs = cam_obs.pop("Segmentation", None)
                 if self.bg_mask_obs:
-                    actor_mask = cam_obs["Segmentation"][..., [1]]
-                    cam_obs["Segmentation"] = (
+                    actor_mask = seg_obs[..., [1]]
+                    cam_obs["bg_mask"] = (
                         (actor_mask == 0) | (actor_mask == self.ground.id)
                     )
-                else:
-                    cam_obs.pop("Segmentation", None)
             obs = resize_obs_images(obs, self.image_obs_shape)
 
         return obs

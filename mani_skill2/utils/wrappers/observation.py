@@ -28,8 +28,8 @@ class RGBDObservationWrapper(gym.ObservationWrapper):
             if self.obs_mode == "rgb":
                 cam_space.spaces.pop("Position", None)
             if env.bg_mask_obs:
-                height, width = cam_space["Segmentation"].shape[:2]
-                cam_space.spaces["Segmentation"] = spaces.Box(
+                height, width = cam_space.spaces.pop("Segmentation").shape[:2]
+                cam_space.spaces["bg_mask"] = spaces.Box(
                     False, True, shape=(height, width, 1), dtype=bool
                 )  # NOTE: sample() gives wrong values
             else:
