@@ -55,9 +55,9 @@ class XArm(BaseAgent):
         assert np.abs(1 - np.linalg.norm(approaching)) < 1e-3
         assert np.abs(1 - np.linalg.norm(closing)) < 1e-3
         assert np.abs(approaching @ closing) <= 1e-3
-        ortho = np.cross(approaching, closing)
+        ortho = np.cross(closing, approaching)
         T = np.eye(4)
-        T[:3, :3] = np.stack([closing, ortho, approaching], axis=1)
+        T[:3, :3] = np.stack([ortho, closing, approaching], axis=1)
         T[:3, 3] = center
         return sapien.Pose.from_transformation_matrix(T)
 
