@@ -926,9 +926,9 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         H, W = rgb_images.shape[1:-1]
 
         sam_obs = OrderedDict()
-        # sam_obs["sam_rgb_images"] = rgb_images
-        # sam_obs["sam_xyz_images"] = xyz_images
-        # sam_obs["sam_xyz_masks"] = xyz_masks
+        sam_obs["sam_rgb_images"] = rgb_images
+        sam_obs["sam_xyz_images"] = xyz_images
+        sam_obs["sam_xyz_masks"] = xyz_masks
 
         # Run grounded_sam_track
         ret_dict = self.grounded_sam_track.predict_and_track_batch(
@@ -958,10 +958,12 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
         # TODO: double check, copied from get_images_sideview()
         # Save gt mask for calculate SAM pred_mask iou, [n_cams, H, W]
-        self._recent_gt_actor_mask = np.stack(
-            [d["Segmentation"][..., 1] for d in obs["image"].values()],
-            axis=0
-        )
+        from real_robot.envs.base_env import XArmBaseEnv
+        if not isinstance(self, XArmBaseEnv):
+            self._recent_gt_actor_mask = np.stack(
+                [d["Segmentation"][..., 1] for d in obs["image"].values()],
+                axis=0
+            )
 
     def _step_gsam(self, info: dict) -> dict:
         """When use_grounded_sam, all info keys without sam/ prefix is GT
@@ -1026,16 +1028,6 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         is_bowl_upwards = True  # NOTE: no checks, assume always True
         is_gripper_high_enough = self.tcp.pose.p[2] >= self.tcp_height_thres
 
-        # Compute pred_mask iou
-        cube_mask_iou = self.get_mask_iou(
-            self.recent_sam_obs["pred_masks"] == 1,
-            self._recent_gt_actor_mask == self.cube.id
-        )
-        bowl_mask_iou = self.get_mask_iou(
-            self.recent_sam_obs["pred_masks"] == 2,
-            self._recent_gt_actor_mask == self.bowl.id
-        )
-
         # Compute position difference
         cube_pos_dist = np.linalg.norm(cube_pos - self.cube.pose.p)
         bowl_pos_dist = np.linalg.norm(bowl_pos - self.bowl.pose.p)
@@ -1054,8 +1046,6 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         sam_eval_dict = dict(
             cube_visible=cube_visible,
             bowl_visible=bowl_visible,
-            cube_mask_iou=cube_mask_iou,
-            bowl_mask_iou=bowl_mask_iou,
             cube_pos_dist=cube_pos_dist,
             bowl_pos_dist=bowl_pos_dist,
             cube_bbox_iou=cube_bbox_iou,
@@ -1067,6 +1057,17 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             success=(is_cube_inside and is_bowl_upwards
                      and (not is_cube_grasped))
         )
+
+        # Compute pred_mask iou
+        if hasattr(self, "_recent_gt_actor_mask"):
+            sam_eval_dict["cube_mask_iou"] = self.get_mask_iou(
+                self.recent_sam_obs["pred_masks"] == 1,
+                self._recent_gt_actor_mask == self.cube.id
+            )
+            sam_eval_dict["bowl_mask_iou"] = self.get_mask_iou(
+                self.recent_sam_obs["pred_masks"] == 2,
+                self._recent_gt_actor_mask == self.bowl.id
+            )
 
         if self.success_needs_high_gripper:
             sam_eval_dict["success"] = (sam_eval_dict["success"]
