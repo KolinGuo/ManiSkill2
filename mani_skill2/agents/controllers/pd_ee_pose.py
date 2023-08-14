@@ -56,6 +56,32 @@ class PDEEPosController(PDJointPosController):
         super().reset()
         self._target_pose = self.ee_pose_at_base
 
+    def find_closest_equiv_qpos(self, target_qpos):
+        """Find the closest equivalent qpos (revolute, +/- 2pi)"""
+        for i, (joint, tgt_val, cur_val) in enumerate(
+            zip(self.joints, target_qpos, self.qpos)
+        ):
+            if joint.type != "revolute":
+                continue
+
+            low, high = joint.get_limits()[0]
+            tgt_dist = abs(tgt_val - cur_val)
+            # Check tgt_val - 2 * np.pi
+            if (
+                (tmp_val := tgt_val - 2*np.pi) > low and
+                (tmp_dist := abs(tmp_val - cur_val)) < tgt_dist
+            ):
+                tgt_dist = tmp_dist
+                target_qpos[i] = tmp_val
+            # Check tgt_val + 2 * np.pi
+            if (
+                (tmp_val := tgt_val + 2*np.pi) < high and
+                (tmp_dist := abs(tmp_val - cur_val)) < tgt_dist
+            ):
+                tgt_dist = tmp_dist
+                target_qpos[i] = tmp_val
+        return target_qpos
+
     def compute_ik(self, target_pose, max_iterations=100):
         # Assume the target pose is defined in the base frame
         result, success, error = self.pmodel.compute_inverse_kinematics(
@@ -66,7 +92,7 @@ class PDEEPosController(PDJointPosController):
             max_iterations=max_iterations,
         )
         if success:
-            return result[self.joint_indices]
+            return self.find_closest_equiv_qpos(result[self.joint_indices])
         else:
             return None
 
