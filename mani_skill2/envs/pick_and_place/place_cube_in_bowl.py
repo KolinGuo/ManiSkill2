@@ -241,7 +241,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
         self.pmodel = None
 
-        self.real_setup = "xarm7" in kwargs.get("robot", "panda")
+        self.real_setup = "xarm" in kwargs.get("robot", "panda")
         self.robot_base_at_world_frame = robot_base_at_world_frame
         self.remove_obs_extra = remove_obs_extra
         self.remove_agent_qvel_obs = remove_agent_qvel_obs

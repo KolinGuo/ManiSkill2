@@ -7,7 +7,9 @@ from sapien.core import Pose
 from mani_skill2.agents.base_agent import BaseAgent
 from mani_skill2.agents.robots.panda import Panda, FloatingPanda
 from mani_skill2.agents.robots.xmate3 import Xmate3Robotiq
-from mani_skill2.agents.robots.xarm import XArm7, XArm7D435
+from mani_skill2.agents.robots.xarm import (
+    XArm7, XArm7D435, FloatingXArm, FloatingXArmD435
+)
 from mani_skill2.envs.sapien_env import BaseEnv
 from mani_skill2.sensors.camera import CameraConfig
 from mani_skill2.utils.sapien_utils import (
@@ -21,8 +23,11 @@ from mani_skill2.utils.sapien_utils import (
 class StationaryManipulationEnv(BaseEnv):
     SUPPORTED_ROBOTS = {"panda": Panda, "floating_panda": FloatingPanda,
                         "xmate3_robotiq": Xmate3Robotiq,
-                        "xarm7": XArm7, "xarm7_d435": XArm7D435}
-    agent: Union[Panda, FloatingPanda, Xmate3Robotiq, XArm7, XArm7D435]
+                        "xarm7": XArm7, "xarm7_d435": XArm7D435,
+                        "floating_xarm": FloatingXArm,
+                        "floating_xarm_d435": FloatingXArmD435}
+    agent: Union[Panda, FloatingPanda, Xmate3Robotiq,
+                 XArm7, XArm7D435, FloatingXArm, FloatingXArmD435]
 
     def __init__(self, *args, robot="panda", robot_init_qpos_noise=0.02, **kwargs):
         self.robot_uid = robot
@@ -88,7 +93,7 @@ class StationaryManipulationEnv(BaseEnv):
             self.agent.robot.set_pose(Pose([-0.615, 0, 0]))
         elif self.robot_uid == "floating_panda":
             # fmt: off
-            # EE at [0.615, 0, 0.17]
+            # EE at [0, 0, 0.17]
             qpos = np.array(
                 [0.0, 0.0, 0.27318206, 0.0, 0.0, -3.14, 0.04, 0.04]
             )
@@ -111,6 +116,17 @@ class StationaryManipulationEnv(BaseEnv):
             qpos = np.array(
                 [0, 0, 0, np.pi / 3, 0, np.pi / 3, -np.pi / 2, 0.0446430, 0.0446430]
             )
+            qpos[:-2] += self._episode_rng.normal(
+                0, self.robot_init_qpos_noise, len(qpos) - 2
+            )
+            self.agent.reset(qpos)
+            self.agent.robot.set_pose(Pose([0.0, 0.0, 0.0]))
+        elif self.robot_uid in ['floating_xarm', 'floating_xarm_d435']:
+            # fmt: off
+            qpos = np.array(
+                [0.0, 0.0, 0.35886714, 0.0, 0.0, -np.pi, 0.0446430, 0.0446430]
+            )
+            # fmt: on
             qpos[:-2] += self._episode_rng.normal(
                 0, self.robot_init_qpos_noise, len(qpos) - 2
             )

@@ -96,7 +96,7 @@ class XArmDefaultConfig:
 
         controller_configs = dict(
             pd_joint_pos=dict(arm=arm_pd_joint_pos, gripper=gripper_pd_joint_pos),
-            arm_pd_joint_delta_pos=dict(
+            pd_joint_delta_pos=dict(
                 arm=arm_pd_joint_delta_pos, gripper=gripper_pd_joint_pos
             ),
             pd_ee_delta_pos=dict(arm=arm_pd_ee_delta_pos, gripper=gripper_pd_joint_pos),
@@ -150,6 +150,48 @@ class XArm7D435DefaultConfig(XArmDefaultConfig):
             "joint5",
             "joint6",
             "joint7",
+        ]
+
+    @property
+    def cameras(self):
+        return CameraConfig(
+            uid="hand_camera",
+            p=[0, 0, 0],
+            q=[1, 0, 0, 0],
+            width=848,
+            height=480,
+            fov=np.deg2rad(43.5),
+            near=0.01,
+            far=10,
+            actor_uid="camera_color_frame",
+        )
+
+
+class FloatingXArmDefaultConfig(XArmDefaultConfig):
+    def __init__(self) -> None:
+        super().__init__()
+        self.urdf_path = "{PACKAGE_ASSET_DIR}/descriptions/xarm_floating_textured_reduced_dof_v2.urdf"
+        self.arm_joint_names = [
+            "x_axis_joint",
+            "y_axis_joint",
+            "z_axis_joint",
+            "x_rotation_joint",
+            "y_rotation_joint",
+            "z_rotation_joint",
+        ]
+
+
+class FloatingXArmD435DefaultConfig(XArmDefaultConfig):
+    def __init__(self) -> None:
+        super().__init__()
+        self.urdf_path = "{PACKAGE_ASSET_DIR}/descriptions/xarm_floating_textured_reduced_dof_d435_v2.urdf"
+        self.arm_joint_names = [
+            "x_axis_joint",
+            "y_axis_joint",
+            "z_axis_joint",
+            "x_rotation_joint",
+            "y_rotation_joint",
+            "z_rotation_joint",
         ]
 
     @property

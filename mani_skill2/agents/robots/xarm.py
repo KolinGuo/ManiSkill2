@@ -76,3 +76,19 @@ class XArm7D435(XArm):
     @classmethod
     def get_default_config(cls):
         return defaults.XArm7D435DefaultConfig()
+
+
+class FloatingXArm(XArm):
+    _config: defaults.FloatingXArmDefaultConfig
+
+    @classmethod
+    def get_default_config(cls):
+        return defaults.FloatingXArmDefaultConfig()
+
+
+class FloatingXArmD435(XArm):
+    _config: defaults.FloatingXArmD435DefaultConfig
+
+    @classmethod
+    def get_default_config(cls):
+        return defaults.FloatingXArmD435DefaultConfig()
