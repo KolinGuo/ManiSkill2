@@ -44,8 +44,24 @@ class PDJointPosController(BaseController):
         self._target_qpos = self.qpos
 
     def set_drive_targets(self, targets):
-        for i, joint in enumerate(self.joints):
-            joint.set_drive_target(targets[i])
+        qpos = self.articulation.get_qpos()
+        for i, (joint, joint_idx, target) in enumerate(
+            zip(self.joints, self.joint_indices, targets)
+        ):
+            # If target is out of joint range for continuous joints
+            if (
+                ((tgt_below := target < -2 * np.pi) or target > 2 * np.pi) and
+                joint.type == "revolute" and
+                np.allclose(joint.get_limits(), np.array([[-np.inf, np.inf]]))
+            ):
+                if tgt_below:
+                    target += 2 * np.pi
+                    qpos[joint_idx] += 2 * np.pi * (qpos[joint_idx] < 0)
+                else:
+                    target -= 2 * np.pi
+                    qpos[joint_idx] -= 2 * np.pi * (qpos[joint_idx] > 0)
+            joint.set_drive_target(target)
+        self.articulation.set_qpos(qpos)
 
     def set_action(self, action: np.ndarray):
         action = self._preprocess_action(action)
