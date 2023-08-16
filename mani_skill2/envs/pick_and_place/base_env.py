@@ -32,6 +32,8 @@ class StationaryManipulationEnv(BaseEnv):
     def __init__(self, *args, robot="panda", robot_init_qpos_noise=0.02, **kwargs):
         self.robot_uid = robot
         self.robot_init_qpos_noise = robot_init_qpos_noise
+        if robot not in self.SUPPORTED_ROBOTS:
+            raise NotImplementedError(f"Unsupported robot: {robot}")
         super().__init__(*args, **kwargs)
 
     def _build_cube(

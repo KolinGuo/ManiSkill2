@@ -1,8 +1,9 @@
-from typing import Dict, List
+from typing import List
 
 import numpy as np
 import sapien.core as sapien
 import trimesh
+import open3d as o3d
 
 
 def get_actor_meshes(actor: sapien.ActorBase):
@@ -96,3 +97,11 @@ def get_articulation_meshes(
             continue
         meshes.append(mesh)
     return meshes
+
+
+def trimesh_to_o3d(mesh: trimesh.Trimesh) -> o3d.geometry.TriangleMesh:
+    assert isinstance(mesh, trimesh.Trimesh), f"Wrong {type(mesh) = }"
+    return o3d.geometry.TriangleMesh(
+        o3d.utility.Vector3dVector(mesh.vertices),
+        o3d.utility.Vector3iVector(mesh.faces)
+    )

@@ -4,4 +4,5 @@ from . import stack_cube
 from . import pick_single
 from . import pick_clutter
 from . import place_cube_in_bowl
+from . import grasp_with_prompt
 from . import test_spatial_relation

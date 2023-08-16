@@ -252,9 +252,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         if image_obs_mode is None:
             image_obs_mode = self.SUPPORTED_IMAGE_OBS_MODES[0]
         if image_obs_mode not in self.SUPPORTED_IMAGE_OBS_MODES:
-            raise NotImplementedError(
-                f"Unsupported image obs mode: {image_obs_mode}"
-            )
+            raise NotImplementedError(f"Unsupported image obs mode: {image_obs_mode}")
         self._image_obs_mode = image_obs_mode
         self.image_obs_shape = image_obs_shape
         self.bg_mask_obs = bg_mask_obs

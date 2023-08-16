@@ -8,7 +8,7 @@ from sapien.core import Pose
 from scipy.spatial import distance as sdist
 
 from mani_skill2.agents.base_agent import BaseAgent
-from mani_skill2.agents.robots.panda import FloatingPanda
+from mani_skill2.agents.robots.panda import Panda, FloatingPanda
 from mani_skill2.agents.robots.mobile_panda import MobilePandaSingleArm
 from mani_skill2.utils.common import np_random, random_choice
 from mani_skill2.utils.geometry import angle_distance, transform_points
