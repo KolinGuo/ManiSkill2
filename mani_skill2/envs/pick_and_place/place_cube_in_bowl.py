@@ -23,7 +23,6 @@ from mani_skill2.utils.geometry import (
 from mani_skill2.utils.camera import resize_obs_images
 
 from pyrl.utils.data import GDict
-from real_robot.sensors.camera import CALIB_CAMERA_POSES
 from real_robot.utils.camera import depth2xyz, transform_points
 
 from .base_env import StationaryManipulationEnv
@@ -299,6 +298,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             # front_camera
             # SAPIEN camera pose is forward(x), left(y) and up(z)
             # T @ np.array([[0,-1,0,0],[0,0,-1,0],[1,0,0,0],[0,0,0,1]])
+            from real_robot.sensors.camera import CALIB_CAMERA_POSES
             pose = CALIB_CAMERA_POSES["front_camera"]
             camera_configs.append(
                 CameraConfig("front_camera", pose.p, pose.q, 848, 480,

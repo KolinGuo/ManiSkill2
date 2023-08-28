@@ -27,7 +27,7 @@ class RGBDObservationWrapper(gym.ObservationWrapper):
         for cam_space in self.observation_space["image"].spaces.values():
             if self.obs_mode == "rgb":
                 cam_space.spaces.pop("Position", None)
-            if env.bg_mask_obs:
+            if hasattr(env, 'bg_mask_obs') and env.bg_mask_obs:
                 height, width = cam_space.spaces.pop("Segmentation").shape[:2]
                 cam_space.spaces["bg_mask"] = spaces.Box(
                     False, True, shape=(height, width, 1), dtype=bool
