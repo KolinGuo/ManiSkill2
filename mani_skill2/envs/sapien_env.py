@@ -539,7 +539,7 @@ class BaseEnv(gym.Env):
 
         return obs, reward, done, info
 
-    def step_action(self, action):
+    def step_action(self, action, **kwargs):
         if action is None:  # simulation without action
             pass
         elif isinstance(action, np.ndarray):
