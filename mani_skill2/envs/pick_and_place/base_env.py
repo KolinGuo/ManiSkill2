@@ -116,7 +116,8 @@ class StationaryManipulationEnv(BaseEnv):
             self.agent.robot.set_pose(Pose([-0.562, 0, 0]))
         elif self.robot_uid in ['xarm7', 'xarm7_d435']:
             qpos = np.array(
-                [0, 0, 0, np.pi / 3, 0, np.pi / 3, -np.pi / 2, 0.0446430, 0.0446430]
+                [0, 0, 0, np.pi / 3, 0, np.pi / 3, -np.pi / 2,
+                 0.0453556139430441, 0.0453556139430441]
             )
             qpos[:-2] += self._episode_rng.normal(
                 0, self.robot_init_qpos_noise, len(qpos) - 2
@@ -126,7 +127,8 @@ class StationaryManipulationEnv(BaseEnv):
         elif self.robot_uid in ['floating_xarm', 'floating_xarm_d435']:
             # fmt: off
             qpos = np.array(
-                [0.0, 0.0, 0.35886714, 0.0, 0.0, -np.pi, 0.0446430, 0.0446430]
+                [0.0, 0.0, 0.35886714, 0.0, 0.0, -np.pi,
+                 0.0453556139430441, 0.0453556139430441]
             )
             # fmt: on
             qpos[:-2] += self._episode_rng.normal(
@@ -159,7 +161,7 @@ class StationaryManipulationEnv(BaseEnv):
             self.agent.robot.set_pose(Pose([-0.562, 0, 0]))
         elif self.robot_uid in ['xarm7', 'xarm7_d435']:
             qpos = np.array(
-                [0, 0, 0, 0, 0, 0, 0, 0.0446430, 0.0446430]
+                [0, 0, 0, 0, 0, 0, 0, 0.0453556139430441, 0.0453556139430441]
             )
             qpos[:-2] += self._episode_rng.normal(
                 0, self.robot_init_qpos_noise, len(qpos) - 2

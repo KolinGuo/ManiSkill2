@@ -87,8 +87,8 @@ class XArmDefaultConfig:
         # However, tune a good force limit to have a good mimic behavior
         gripper_pd_joint_pos = PDJointPosMimicControllerConfig(
             self.gripper_joint_names,
-            -0.0005252,  # -10
-            0.0446430,   # 850
+            -0.00053359545815346,  # -10
+            0.0453556139430441,   # 850
             self.gripper_stiffness,
             self.gripper_damping,
             self.gripper_force_limit,
