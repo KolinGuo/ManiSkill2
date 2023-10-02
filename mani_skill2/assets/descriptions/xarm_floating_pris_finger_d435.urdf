@@ -28,21 +28,21 @@
     <parent link="root"/>
     <child link="root1"/>
     <axis xyz="1 0 0"/>
-    <limit lower="-10" upper="10" velocity="0.50"/>
+    <limit effort="50" lower="-10" upper="10" velocity="0.50"/>
     <dynamics damping="10.0" friction="10"/>
   </joint>
   <joint name="y_axis_joint" type="prismatic">
     <parent link="root1"/>
     <child link="root2"/>
     <axis xyz="0 1 0"/>
-    <limit lower="-10" upper="10" velocity="0.50"/>
+    <limit effort="50" lower="-10" upper="10" velocity="0.50"/>
     <dynamics damping="10.0" friction="10"/>
   </joint>
   <joint name="z_axis_joint" type="prismatic">
     <parent link="root2"/>
     <child link="root3"/>
     <axis xyz="0 0 1"/>
-    <limit lower="-10" upper="10" velocity="0.50"/>
+    <limit effort="50" lower="-10" upper="10" velocity="0.50"/>
     <dynamics damping="10.0" friction="10"/>
   </joint>
   <joint name="x_rotation_joint" type="continuous">
@@ -141,7 +141,7 @@
     <origin rpy="-1.5707963267948966 0 -1.5707963267948966" xyz="0 0 0"/>
   </joint>
   <joint name="joint_eef" type="fixed">
-    <origin rpy="0 3.141592653589793 0" xyz="0 0 0"/>
+    <origin rpy="0 0 0" xyz="0 0 -0.005"/>
     <parent link="root6"/>
     <child link="link_eef"/>
   </joint>
