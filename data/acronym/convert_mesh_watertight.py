@@ -25,7 +25,7 @@ def process_meshes(grasp_h5_paths: list[Path], mesh_dir: Path,
         assert mesh_path.is_file(), f"{mesh_path=} does not exist"
         assert mesh_mtl_path.is_file(), f"{mesh_mtl_path=} does not exist"
 
-        save_path = output_dir / f"{obj_category}_{shapenetid}"
+        save_path = output_dir / grasp_h5_path.stem
         save_path.mkdir()
 
         # Copy mesh and meterial file
