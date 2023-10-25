@@ -1,8 +1,8 @@
 from typing import Type, Union
 
 import numpy as np
-import sapien.core as sapien
-from sapien.core import Pose
+import sapien
+from sapien import Pose
 
 from mani_skill2.agents.base_agent import BaseAgent
 from mani_skill2.agents.robots.panda import Panda, FloatingPanda
@@ -13,7 +13,7 @@ from mani_skill2.agents.robots.xarm import (
 from mani_skill2.envs.sapien_env import BaseEnv
 from mani_skill2.sensors.camera import CameraConfig
 from mani_skill2.utils.sapien_utils import (
-    get_entity_by_name,
+    hide_entity,
     look_at,
     set_articulation_render_material,
     vectorize_pose,
@@ -42,11 +42,11 @@ class StationaryManipulationEnv(BaseEnv):
         color=(1, 0, 0),
         name="cube",
         static=False,
-        render_material: sapien.RenderMaterial = None,
+        render_material: sapien.VisualMaterialRecord = None,
     ):
         if render_material is None:
             render_material = self._renderer.create_material()
-            render_material.set_base_color(np.hstack([color, 1.0]))
+            render_material.base_color = (*color, 1.0)
 
         builder = self._scene.create_actor_builder()
         builder.add_box_collision(half_size=half_size)
@@ -60,10 +60,12 @@ class StationaryManipulationEnv(BaseEnv):
                            color=(0, 1, 0), name="goal_site"):
         """Build a sphere site (visual only). Used to indicate goal position."""
         builder = self._scene.create_actor_builder()
-        builder.add_sphere_visual(pose=pose, radius=radius, color=color)
+        visual_mat = self._renderer.create_material()
+        visual_mat.base_color = (*color, 1.0)
+        builder.add_sphere_visual(pose=pose, radius=radius, material=visual_mat)
         sphere = builder.build_static(name)
         # NOTE(jigu): Must hide after creation to avoid pollute observations!
-        sphere.hide_visual()
+        hide_entity(sphere)
         return sphere
 
     def _configure_agent(self):
@@ -71,13 +73,13 @@ class StationaryManipulationEnv(BaseEnv):
         self._agent_cfg = agent_cls.get_default_config()
 
     def _load_agent(self):
-        agent_cls: Type[Panda] = self.SUPPORTED_ROBOTS[self.robot_uid]
+        agent_cls: Type[BaseAgent] = self.SUPPORTED_ROBOTS[self.robot_uid]
         self.agent = agent_cls(
             self._scene, self._control_freq, self._control_mode, config=self._agent_cfg
         )
-        self.tcp: sapien.Link = get_entity_by_name(
-            self.agent.robot.get_links(), self.agent.config.ee_link_name
-        )
+        self.tcp: sapien.Entity = self.agent.robot.find_link_by_name(
+            self.agent.config.ee_link_name
+        ).entity
         set_articulation_render_material(self.agent.robot, specular=0.9, roughness=0.3)
 
     def _initialize_agent(self):

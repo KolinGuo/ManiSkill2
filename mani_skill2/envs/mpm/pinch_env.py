@@ -2,7 +2,7 @@ from collections import OrderedDict
 
 import h5py
 import numpy as np
-import sapien.core as sapien
+import sapien
 import warp as wp
 from transforms3d.euler import euler2quat
 from warp.distance import compute_chamfer_distance
@@ -14,7 +14,7 @@ from mani_skill2.envs.mpm.base_env import MPMBaseEnv, MPMModelBuilder, MPMSimula
 from mani_skill2.envs.mpm.utils import load_h5_as_dict
 from mani_skill2.sensors.camera import CameraConfig
 from mani_skill2.utils.registration import register_env
-from mani_skill2.utils.sapien_utils import get_entity_by_name, vectorize_pose
+from mani_skill2.utils.sapien_utils import vectorize_pose
 
 
 @register_env("Pinch-v0", max_episode_steps=300)
@@ -134,9 +134,9 @@ class PinchEnv(MPMBaseEnv):
             control_mode=self._control_mode,
             config=self._agent_cfg,
         )
-        self.grasp_site: sapien.Link = get_entity_by_name(
-            self.agent.robot.get_links(), "panda_hand_tcp"
-        )
+        self.grasp_site: sapien.Entity = self.agent.robot.find_link_by_name(
+            "panda_hand_tcp"
+        ).entity
 
     def _initialize_agent(self):
         noise = self._episode_rng.uniform([-0.1] * 7 + [0, 0], [0.1] * 7 + [0, 0])
@@ -160,12 +160,12 @@ class PinchEnv(MPMBaseEnv):
     def compute_dense_reward(self, **kwargs):
 
         # reaching reward
-        gripper_mat = self.grasp_site.get_pose().to_transformation_matrix()
+        gripper_mat = self.grasp_site.pose.to_transformation_matrix()
         gripper_bottom_mat = np.array(
             [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0.02], [0, 0, 0, 1]]
         )
         bottom_mat = gripper_mat @ gripper_bottom_mat
-        bottom_pos = sapien.Pose.from_transformation_matrix(bottom_mat).p
+        bottom_pos = sapien.Pose(bottom_mat).p
         particles_x = self.get_mpm_state()["x"]
         distance = np.min(np.linalg.norm(particles_x - bottom_pos, axis=-1))
         reaching_reward = 1 - np.tanh(10.0 * distance)
@@ -210,7 +210,7 @@ class PinchEnv(MPMBaseEnv):
         target_depth = self.goal_depths
         target_points = self.goal_points
         return OrderedDict(
-            tcp_pose=vectorize_pose(self.grasp_site.get_pose()),
+            tcp_pose=vectorize_pose(self.grasp_site.pose),
             target_rgb=target_rgb,
             target_depth=target_depth,
             target_points=target_points,

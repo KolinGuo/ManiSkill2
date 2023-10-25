@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Dict, List
 
 import numpy as np
-import sapien.core as sapien
+import sapien.physx as physx
 from gym import spaces
 
 from mani_skill2.utils.common import clip_and_scale_action, normalize_action_space
@@ -16,14 +16,14 @@ class BaseController:
     The controller is an interface for the robot to interact with the environment.
     """
 
-    joints: List[sapien.Joint]  # active joints controlled
+    joints: List[physx.PhysxArticulationJoint]  # active joints controlled
     joint_indices: List[int]  # indices of active joints controlled
     action_space: spaces.Space
 
     def __init__(
         self,
         config: "ControllerConfig",
-        articulation: sapien.Articulation,
+        articulation: physx.PhysxArticulation,
         control_freq: int,
         sim_freq: int = None,
     ):
@@ -33,8 +33,7 @@ class BaseController:
 
         # For action interpolation
         if sim_freq is None:  # infer from scene
-            # TODO(jigu): update sapien interface to avoid this workaround
-            sim_timestep = self.articulation.get_builder().get_scene().get_timestep()
+            sim_timestep = self.articulation.root.entity.scene.timestep
             sim_freq = round(1.0 / sim_timestep)
         # Number of simulation steps per control step
         self._sim_steps = sim_freq // control_freq
@@ -143,7 +142,7 @@ class DictController(BaseController):
     def __init__(
         self,
         configs: Dict[str, ControllerConfig],
-        articulation: sapien.Articulation,
+        articulation: physx.PhysxArticulation,
         control_freq: int,
         sim_freq: int = None,
         balance_passive_force=True,
@@ -203,7 +202,9 @@ class DictController(BaseController):
 
     def before_simulation_step(self):
         if self.balance_passive_force:
-            qf = self.articulation.compute_passive_force(external=False)
+            qf = self.articulation.compute_passive_force(
+                gravity=True, coriolis_and_centrifugal=True
+            )
         else:
             qf = np.zeros(self.articulation.dof)
         for controller in self.controllers.values():

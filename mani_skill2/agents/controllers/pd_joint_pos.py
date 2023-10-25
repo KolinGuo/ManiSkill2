@@ -11,7 +11,7 @@ class PDJointPosController(BaseController):
     config: "PDJointPosControllerConfig"
 
     def _get_joint_limits(self):
-        qlimits = self.articulation.get_qlimits()[self.joint_indices]
+        qlimits = self.articulation.qlimit[self.joint_indices]
         # Override if specified
         if self.config.lower is not None:
             qlimits[:, 0] = self.config.lower
@@ -32,7 +32,7 @@ class PDJointPosController(BaseController):
         friction = np.broadcast_to(self.config.friction, n)
 
         for i, joint in enumerate(self.joints):
-            joint.set_drive_property(
+            joint.set_drive_properties(
                 stiffness[i], damping[i], force_limit=force_limit[i]
             )
             joint.set_friction(friction[i])
@@ -52,7 +52,7 @@ class PDJointPosController(BaseController):
             if (
                 ((tgt_below := target < -2 * np.pi) or target > 2 * np.pi) and
                 joint.type == "revolute" and
-                np.allclose(joint.get_limits(), np.array([[-np.inf, np.inf]]))
+                np.allclose(joint.limit, np.array([[-np.inf, np.inf]]))
             ):
                 if tgt_below:
                     target += 2 * np.pi

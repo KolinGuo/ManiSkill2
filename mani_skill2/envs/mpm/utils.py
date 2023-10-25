@@ -3,11 +3,11 @@ from typing import Union
 
 import h5py
 import numpy as np
-import sapien.core as sapien
+import sapien
 import trimesh
 
 
-def actor2meshes(actor: sapien.Actor, visual=False, return_primitives=False):
+def actor2meshes(actor: sapien.Entity, visual=False, return_primitives=False):
     primitives = []
     meshes = []
     if visual:
@@ -40,7 +40,7 @@ def actor2meshes(actor: sapien.Actor, visual=False, return_primitives=False):
             else:
                 raise NotImplementedError()
     else:
-        collisions = actor.get_collision_shapes()
+        collisions = actor.collision_shapes
         meshes = []
         for s in collisions:
             s: sapien.CollisionShape

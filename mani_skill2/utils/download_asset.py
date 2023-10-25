@@ -228,7 +228,7 @@ def download(
     return output_path
 
 
-def parse_args():
+def parse_args(args=None):
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "uid",
@@ -242,11 +242,10 @@ def parse_args():
     parser.add_argument(
         "-o", "--output-dir", type=str, help="Directory to save assets."
     )
-    return parser.parse_args()
+    return parser.parse_args(args)
 
 
-def main():
-    args = parse_args()
+def main(args):
     verbose = not args.quiet
 
     initialize_sources()
@@ -288,4 +287,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    args = parse_args()
+    main(args)

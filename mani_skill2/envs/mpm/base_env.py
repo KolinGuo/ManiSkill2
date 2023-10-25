@@ -22,7 +22,7 @@ from collections import OrderedDict
 import numpy as np
 from transforms3d.quaternions import quat2mat
 from transforms3d.euler import euler2quat
-import sapien.core as sapien
+import sapien
 from warp_maniskill.mpm.mpm_simulator import (
     Simulator as MPMSimulator,
     Mesh as MPMMesh,
@@ -636,7 +636,7 @@ class MPMBaseEnv(BaseEnv):
         )
 
     def _add_draw_box(self, bbox):
-        from sapien.core import renderer as R
+        from sapien import internal_renderer as R
 
         context: R.Context = self._renderer._internal_context
         # fmt:off

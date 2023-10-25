@@ -3,7 +3,8 @@ from typing import Dict, List, Tuple, Union
 from collections import OrderedDict
 
 import numpy as np
-from sapien.core import Pose
+import sapien.physx as physx
+from sapien import Pose
 from transforms3d.euler import euler2quat
 from transforms3d.quaternions import axangle2quat, qmult
 
@@ -155,7 +156,9 @@ class GraspWithPromptEnv(StationaryManipulationEnv):
     def _load_actors(self):
         self.ground = self._add_ground(render=self.bg_name is None)
         self._load_model()
-        self.obj.set_damping(0.1, 0.1)
+        obj_comp = self.obj.find_component_by_type(physx.PhysxRigidDynamicComponent)
+        obj_comp.set_linear_damping(0.1)
+        obj_comp.set_angular_damping(0.1)
 
     # ---------------------------------------------------------------------- #
     # Reset
@@ -179,7 +182,9 @@ class GraspWithPromptEnv(StationaryManipulationEnv):
         self.agent_col = self.agent
         self.obj_col = self.obj
         # Check collision between these actors during init
-        self.check_col_actor_ids = self.agent_col.robot_link_ids + [self.obj_col.id]
+        self.check_col_actor_ids = (
+            self.agent_col.robot_link_ids + [self.obj_col.per_scene_id]
+        )
         super().reconfigure()
 
     def _set_model(self, model_id: Tuple[str, str], model_scale):
@@ -248,20 +253,21 @@ class GraspWithPromptEnv(StationaryManipulationEnv):
         self.agent.robot.set_pose(Pose([-10, 0, 0]))
 
         # Lock rotation around x and y
-        self.obj.lock_motion(0, 0, 0, 1, 1, 0)
+        obj_comp = self.obj.find_component_by_type(physx.PhysxRigidDynamicComponent)
+        obj_comp.set_locked_motion_axes([0, 0, 0, 1, 1, 0])
         self._settle(0.5)
 
         # Unlock motion
-        self.obj.lock_motion(0, 0, 0, 0, 0, 0)
+        obj_comp.set_locked_motion_axes([0, 0, 0, 0, 0, 0])
         # NOTE(jigu): Explicit set pose to ensure the actor does not sleep
         self.obj.set_pose(self.obj.pose)
-        self.obj.set_velocity(np.zeros(3))
-        self.obj.set_angular_velocity(np.zeros(3))
+        obj_comp.set_linear_velocity(np.zeros(3))
+        obj_comp.set_angular_velocity(np.zeros(3))
         self._settle(0.5)
 
         # Some objects need longer time to settle
-        lin_vel = np.linalg.norm(self.obj.velocity)
-        ang_vel = np.linalg.norm(self.obj.angular_velocity)
+        lin_vel = np.linalg.norm(obj_comp.linear_velocity)
+        ang_vel = np.linalg.norm(obj_comp.angular_velocity)
         if lin_vel > 1e-3 or ang_vel > 1e-2:
             self._settle(0.5)
 
@@ -287,7 +293,7 @@ class GraspWithPromptEnv(StationaryManipulationEnv):
                 if self.bg_mask_obs:
                     actor_mask = seg_obs[..., [1]]
                     cam_obs["bg_mask"] = (
-                        (actor_mask == 0) | (actor_mask == self.ground.id)
+                        (actor_mask == 0) | (actor_mask == self.ground.per_scene_id)
                     )
             obs = resize_obs_images(obs, self.image_obs_shape)
 

@@ -1,30 +1,11 @@
-from typing import Union, Sequence
-
 import numpy as np
-import sapien.core as sapien
-from sapien.core import Pose
+import sapien
+import sapien.physx as physx
+from sapien import Pose
 from transforms3d.euler import euler2quat
 
 from mani_skill2.agents.base_agent import BaseAgent
 from mani_skill2.agents.configs.mobile_panda import defaults
-
-
-def get_entities_by_names(
-    entities: Sequence[sapien.Entity], names: Union[str, Sequence[str]]
-):
-    assert isinstance(entities, (list, tuple)), type(entities)
-    if isinstance(names, str):
-        names = [names]
-        flag = True  # singular
-    else:
-        flag = False
-    ret = [None for _ in names]
-
-    for entity in entities:
-        name = entity.get_name()
-        if name in names:
-            ret[names.index(name)] = entity
-    return ret[0] if flag else ret
 
 
 class DummyMobileAgent(BaseAgent):
@@ -51,14 +32,14 @@ class DummyMobileAgent(BaseAgent):
         assert active_joints[2].name == "root_z_rotation_joint"
 
         # Dummy base
-        self.base_link = self.robot.get_links()[3]
+        self.base_link = self.robot.get_links()[3].entity
 
         # Ignore collision between the adjustable body and ground
-        body = get_entities_by_names(self.robot.get_links(), "adjustable_body")
-        s = body.get_collision_shapes()[0]
+        body = self.robot.find_link_by_name("adjustable_body")
+        s = body.collision_shapes[0]
         gs = s.get_collision_groups()
         gs[2] = gs[2] | 1 << 30
-        s.set_collision_groups(*gs)
+        s.set_collision_groups(gs)
 
     def get_proprioception(self):
         state_dict = super().get_proprioception()
@@ -97,38 +78,19 @@ class MobilePandaDualArm(DummyMobileAgent):
     def _after_init(self):
         super()._after_init()
 
-        (
-            self.rfinger1_joint,
-            self.rfinger2_joint,
-            self.lfinger1_joint,
-            self.lfinger2_joint,
-        ) = get_entities_by_names(
-            self.robot.get_joints(),
-            [
-                "right_panda_finger_joint1",
-                "right_panda_finger_joint2",
-                "left_panda_finger_joint1",
-                "left_panda_finger_joint2",
-            ],
-        )
-        (
-            self.rfinger1_link,
-            self.rfinger2_link,
-            self.lfinger1_link,
-            self.lfinger2_link,
-        ) = get_entities_by_names(
-            self.robot.get_links(),
-            [
-                "right_panda_leftfinger",
-                "right_panda_rightfinger",
-                "left_panda_leftfinger",
-                "left_panda_rightfinger",
-            ],
-        )
+        robot = self.robot
+        self.rfinger1_joint = robot.find_joint_by_name("right_panda_finger_joint1")
+        self.rfinger2_joint = robot.find_joint_by_name("right_panda_finger_joint2")
+        self.lfinger1_joint = robot.find_joint_by_name("left_panda_finger_joint1")
+        self.lfinger2_joint = robot.find_joint_by_name("left_panda_finger_joint2")
 
-        self.rhand, self.lhand = get_entities_by_names(
-            self.robot.get_links(), ["right_panda_hand", "left_panda_hand"]
-        )
+        self.rfinger1_link = robot.find_link_by_name("right_panda_leftfinger").entity
+        self.rfinger2_link = robot.find_link_by_name("right_panda_rightfinger").entity
+        self.lfinger1_link = robot.find_link_by_name("left_panda_leftfinger").entity
+        self.lfinger2_link = robot.find_link_by_name("left_panda_rightfinger").entity
+
+        self.rhand: sapien.Entity = robot.find_link_by_name("right_panda_hand").entity
+        self.lhand: sapien.Entity = robot.find_link_by_name("left_panda_hand").entity
 
     def get_fingers_info(self):
         fingers_pos = self.get_ee_coords().flatten()
@@ -140,19 +102,20 @@ class MobilePandaDualArm(DummyMobileAgent):
 
     def get_ee_coords(self):
         finger_tips = [
-            self.rfinger2_joint.get_global_pose().transform(Pose([0, 0.035, 0])).p,
-            self.rfinger1_joint.get_global_pose().transform(Pose([0, -0.035, 0])).p,
-            self.lfinger2_joint.get_global_pose().transform(Pose([0, 0.035, 0])).p,
-            self.lfinger1_joint.get_global_pose().transform(Pose([0, -0.035, 0])).p,
+            (self.rfinger2_joint.get_global_pose() * Pose([0, 0.035, 0])).p,
+            (self.rfinger1_joint.get_global_pose() * Pose([0, -0.035, 0])).p,
+            (self.lfinger2_joint.get_global_pose() * Pose([0, 0.035, 0])).p,
+            (self.lfinger1_joint.get_global_pose() * Pose([0, -0.035, 0])).p,
         ]
         return np.array(finger_tips)
 
     def get_ee_vels(self):
+        link_type = physx.PhysxArticulationLinkComponent
         finger_vels = [
-            self.rfinger1_link.get_velocity(),
-            self.rfinger2_link.get_velocity(),
-            self.lfinger1_link.get_velocity(),
-            self.lfinger2_link.get_velocity(),
+            self.rfinger1_link.find_component_by_type(link_type).linear_velocity,
+            self.rfinger2_link.find_component_by_type(link_type).linear_velocity,
+            self.lfinger1_link.find_component_by_type(link_type).linear_velocity,
+            self.lfinger2_link.find_component_by_type(link_type).linear_velocity,
         ]
         return np.array(finger_vels)
 
@@ -167,17 +130,14 @@ class MobilePandaSingleArm(DummyMobileAgent):
     def _after_init(self):
         super()._after_init()
 
-        self.finger1_joint, self.finger2_joint = get_entities_by_names(
-            self.robot.get_joints(),
-            ["right_panda_finger_joint1", "right_panda_finger_joint2"],
-        )
-        self.finger1_link, self.finger2_link = get_entities_by_names(
-            self.robot.get_links(),
-            ["right_panda_leftfinger", "right_panda_rightfinger"],
-        )
-        self.hand: sapien.LinkBase = get_entities_by_names(
-            self.robot.get_links(), "right_panda_hand"
-        )
+        robot = self.robot
+        self.finger1_joint = robot.find_joint_by_name("right_panda_finger_joint1")
+        self.finger2_joint = robot.find_joint_by_name("right_panda_finger_joint2")
+
+        self.finger1_link = robot.find_link_by_name("right_panda_leftfinger").entity
+        self.finger2_link = robot.find_link_by_name("right_panda_rightfinger").entity
+
+        self.hand: sapien.Entity = robot.find_link_by_name("right_panda_hand").entity
 
     def get_fingers_info(self):
         fingers_pos = self.get_ee_coords().flatten()
@@ -189,15 +149,16 @@ class MobilePandaSingleArm(DummyMobileAgent):
 
     def get_ee_coords(self):
         finger_tips = [
-            self.finger2_joint.get_global_pose().transform(Pose([0, 0.035, 0])).p,
-            self.finger1_joint.get_global_pose().transform(Pose([0, -0.035, 0])).p,
+            (self.finger2_joint.get_global_pose() * Pose([0, 0.035, 0])).p,
+            (self.finger1_joint.get_global_pose() * Pose([0, -0.035, 0])).p,
         ]
         return np.array(finger_tips)
 
     def get_ee_vels(self):
+        link_type = physx.PhysxArticulationLinkComponent
         finger_vels = [
-            self.finger2_link.get_velocity(),
-            self.finger1_link.get_velocity(),
+            self.finger2_link.find_component_by_type(link_type).linear_velocity,
+            self.finger1_link.find_component_by_type(link_type).linear_velocity,
         ]
         return np.array(finger_vels)
 
@@ -208,8 +169,8 @@ class MobilePandaSingleArm(DummyMobileAgent):
         for i in range(10):
             x = (l * i + (4 - i) * r) / 4
             finger_tips = [
-                self.finger2_joint.get_global_pose().transform(Pose([0, x, 0])).p,
-                self.finger1_joint.get_global_pose().transform(Pose([0, -x, 0])).p,
+                (self.finger2_joint.get_global_pose() * Pose([0, x, 0])).p,
+                (self.finger1_joint.get_global_pose() * Pose([0, -x, 0])).p,
             ]
             ret.append(finger_tips)
         return np.array(ret).transpose((1, 0, 2))
@@ -224,4 +185,4 @@ class MobilePandaSingleArm(DummyMobileAgent):
         T = np.eye(4)
         T[:3, :3] = np.stack([ortho, closing, approaching], axis=1)
         T[:3, 3] = center
-        return Pose.from_transformation_matrix(T)
+        return Pose(T)

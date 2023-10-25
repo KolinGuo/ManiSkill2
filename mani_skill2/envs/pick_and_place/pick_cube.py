@@ -1,11 +1,11 @@
 from collections import OrderedDict
 
 import numpy as np
-from sapien.core import Pose
+from sapien import Pose
 from transforms3d.euler import euler2quat
 
 from mani_skill2.utils.registration import register_env
-from mani_skill2.utils.sapien_utils import vectorize_pose
+from mani_skill2.utils.sapien_utils import vectorize_pose, hide_entity, show_entity
 
 from .base_env import StationaryManipulationEnv
 
@@ -148,9 +148,9 @@ class PickCubeEnv(StationaryManipulationEnv):
 
     def render(self, mode="human"):
         if mode in ["human", "rgb_array"]:
-            self.goal_site.unhide_visual()
+            show_entity(self.goal_site)
             ret = super().render(mode=mode)
-            self.goal_site.hide_visual()
+            hide_entity(self.goal_site)
         else:
             ret = super().render(mode=mode)
         return ret
@@ -181,7 +181,7 @@ class PickCubeCostEnv(PickCubeEnv):
 
         # tcp_to_obj_dict < 0.02
         cost["cost_tcp_to_obj_dist"] \
-                = cost["tcp_to_obj_dist"] - self.tcp_to_obj_dist_thres
+            = cost["tcp_to_obj_dist"] - self.tcp_to_obj_dist_thres
 
         return cost
 
@@ -247,8 +247,8 @@ class LiftCubeEnv(PickCubeEnv):
             return reward
 
         # reaching reward
-        gripper_pos = self.tcp.get_pose().p
-        obj_pos = self.obj.get_pose().p
+        gripper_pos = self.tcp.pose.p
+        obj_pos = self.obj.pose.p
         dist = np.linalg.norm(gripper_pos - obj_pos)
         reaching_reward = 1 - np.tanh(5 * dist)
         reward += reaching_reward

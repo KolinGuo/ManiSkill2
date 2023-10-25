@@ -1,6 +1,9 @@
 import numpy as np
 
-from mani_skill2.agents.controllers import *
+from mani_skill2.agents.controllers import (
+    PDEEPoseControllerConfig,
+    PDJointPosMimicControllerConfig
+)
 from mani_skill2.sensors.camera import CameraConfig
 
 from .defaults import PandaDefaultConfig
@@ -67,7 +70,7 @@ class PandaBucketConfig(PandaDefaultConfig):
             near=0.01,
             far=10,
             fov=np.pi / 2,
-            actor_uid="bucket",
+            entity_uid="bucket",
         )
 
 

@@ -14,7 +14,7 @@ from typing import Callable, Dict, List, Optional, Sequence, Type, Union
 
 import gym
 import numpy as np
-import sapien.core as sapien
+import sapien
 from gym import spaces
 from gym.vector.utils.shared_memory import *
 

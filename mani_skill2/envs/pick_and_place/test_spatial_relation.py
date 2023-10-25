@@ -3,8 +3,9 @@ from pathlib import Path
 from typing import Dict, List
 
 import numpy as np
-import sapien.core as sapien
-from sapien.core import Pose
+import sapien
+import sapien.physx as physx
+from sapien import Pose
 from transforms3d.euler import euler2quat
 from transforms3d.quaternions import axangle2quat, qmult
 
@@ -13,7 +14,7 @@ from mani_skill2.utils.common import random_choice
 from mani_skill2.utils.io_utils import load_json
 from mani_skill2.utils.registration import register_env
 from mani_skill2.sensors.camera import CameraConfig
-from mani_skill2.utils.sapien_utils import vectorize_pose, look_at
+from mani_skill2.utils.sapien_utils import look_at
 from mani_skill2.utils.visualization.misc import tile_images
 
 from .base_env import StationaryManipulationEnv
@@ -259,19 +260,20 @@ class TestCubeSpatial(StationaryManipulationEnv):
 def build_actor_ycb(
     model_id: str, scene: sapien.Scene,
     scale: float = 1.0,
-    physical_material: sapien.PhysicalMaterial = None,
+    physical_material: sapien.PhysicalMaterialRecord = None,
     density=1000,
     root_dir=ASSET_DIR / "mani_skill2_ycb",
 ):
     builder = scene.create_actor_builder()
     model_dir = Path(root_dir) / "models" / model_id
 
-    collision_file = str(model_dir / "collision.obj")
-    builder.add_multiple_collisions_from_file(
+    collision_file = str(model_dir / "collision.coacd.ply")
+    builder.add_multiple_convex_collisions_from_file(
         filename=collision_file,
         scale=[scale] * 3,
         material=physical_material,
         density=density,
+        decomposition="none",
     )
 
     visual_file = str(model_dir / "textured.obj")
@@ -397,7 +399,9 @@ class TestCubeBowlSpatial(TestCubeSpatial):
     def _load_actors(self):
         self._add_ground(render=self.bg_name is None)
         self._load_model()
-        self.obj.set_damping(0.1, 0.1)
+        obj_comp = self.obj.find_component_by_type(physx.PhysxRigidDynamicComponent)
+        obj_comp.set_linear_damping(0.1)
+        obj_comp.set_angular_damping(0.1)
         self.cubeA = self._build_cube(self.cube_half_size, color=(0, 1, 0), name="green cube")
         #self.goal_site = self._build_sphere_site(self.goal_thresh)
 
@@ -431,20 +435,21 @@ class TestCubeBowlSpatial(TestCubeSpatial):
         self.agent.robot.set_pose(Pose([-10, 0, 0]))
 
         # Lock rotation around x and y
-        self.obj.lock_motion(0, 0, 0, 1, 1, 0)
+        obj_comp = self.obj.find_component_by_type(physx.PhysxRigidDynamicComponent)
+        obj_comp.set_locked_motion_axes([0, 0, 0, 1, 1, 0])
         self._settle(0.5)
 
         # Unlock motion
-        self.obj.lock_motion(0, 0, 0, 0, 0, 0)
+        obj_comp.set_locked_motion_axes([0, 0, 0, 0, 0, 0])
         # NOTE(jigu): Explicit set pose to ensure the actor does not sleep
         self.obj.set_pose(self.obj.pose)
-        self.obj.set_velocity(np.zeros(3))
-        self.obj.set_angular_velocity(np.zeros(3))
+        obj_comp.set_linear_velocity(np.zeros(3))
+        obj_comp.set_angular_velocity(np.zeros(3))
         self._settle(0.5)
 
         # Some objects need longer time to settle
-        lin_vel = np.linalg.norm(self.obj.velocity)
-        ang_vel = np.linalg.norm(self.obj.angular_velocity)
+        lin_vel = np.linalg.norm(obj_comp.linear_velocity)
+        ang_vel = np.linalg.norm(obj_comp.angular_velocity)
         if lin_vel > 1e-3 or ang_vel > 1e-2:
             self._settle(0.5)
 

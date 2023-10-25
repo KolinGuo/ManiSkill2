@@ -1,4 +1,10 @@
-from mani_skill2.agents.controllers import *
+from mani_skill2.agents.controllers import (
+    deepcopy_dict,
+    PDJointPosControllerConfig,
+    PDEEPosControllerConfig,
+    PDEEPoseControllerConfig,
+    PDJointPosMimicControllerConfig
+)
 from mani_skill2.sensors.camera import CameraConfig
 
 
@@ -127,7 +133,7 @@ class Xmate3RobotiqDefaultConfig:
                 fov=1.5707,
                 near=0.01,
                 far=10,
-                actor_uid="camera_base_link",
+                entity_uid="camera_base_link",
                 hide_link=False,
             ),
             CameraConfig(
@@ -139,8 +145,7 @@ class Xmate3RobotiqDefaultConfig:
                 fov=1.5707,
                 near=0.01,
                 far=10,
-                actor_uid="camera_hand_link",
+                entity_uid="camera_hand_link",
                 hide_link=False,
             ),
         ]
-       

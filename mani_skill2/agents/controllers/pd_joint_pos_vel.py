@@ -4,7 +4,6 @@ from typing import Sequence, Union
 import numpy as np
 from gym import spaces
 
-from ..base_controller import BaseController, ControllerConfig
 from .pd_joint_pos import PDJointPosController, PDJointPosControllerConfig
 
 

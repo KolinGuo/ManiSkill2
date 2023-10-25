@@ -2,7 +2,7 @@ from collections import OrderedDict
 
 import h5py
 import numpy as np
-import sapien.core as sapien
+import sapien
 from transforms3d.euler import euler2quat
 
 from mani_skill2 import ASSET_DIR
@@ -284,7 +284,7 @@ class WriteEnv(MPMBaseEnv):
             [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0.02], [0, 0, 0, 1]]
         )
         bottom_mat = gripper_mat @ gripper_bottom_mat
-        bottom_pos = sapien.Pose.from_transformation_matrix(bottom_mat).p
+        bottom_pos = sapien.Pose(bottom_mat).p
         particles_x = self.get_mpm_state()["x"]
         distance = np.min(np.linalg.norm(particles_x - bottom_pos, axis=-1))
         reaching_reward = 1 - np.tanh(10.0 * distance)

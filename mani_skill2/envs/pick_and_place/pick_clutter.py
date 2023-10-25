@@ -3,14 +3,19 @@ from pathlib import Path
 from typing import Dict, List
 
 import numpy as np
-import sapien.core as sapien
-from sapien.core import Pose
+import sapien
+import sapien.physx as physx
+from sapien import Pose
 
 from mani_skill2 import format_path
 from mani_skill2.utils.common import random_choice
 from mani_skill2.utils.io_utils import load_json
 from mani_skill2.utils.registration import register_env
-from mani_skill2.utils.sapien_utils import look_at, set_actor_visibility, vectorize_pose
+from mani_skill2.utils.sapien_utils import (
+    look_at,
+    set_entity_visibility,
+    vectorize_pose
+)
 
 from .base_env import StationaryManipulationEnv
 from .pick_single import PickSingleYCBEnv, build_actor_ycb
@@ -21,7 +26,7 @@ class PickClutterEnv(StationaryManipulationEnv):
     DEFAULT_ASSET_ROOT: str
     DEFAULT_MODEL_JSON: str
 
-    obj: sapien.Actor  # target object
+    obj: sapien.Entity  # target object
 
     def __init__(
         self,
@@ -62,7 +67,7 @@ class PickClutterEnv(StationaryManipulationEnv):
     def _load_actors(self):
         self._add_ground(render=self.bg_name is None)
 
-        self.objs: List[sapien.Actor] = []
+        self.objs: List[sapien.Entity] = []
         self.bbox_sizes = []
         for actor_cfg in self.episode["actors"]:
             model_id = actor_cfg["model_id"]
@@ -81,7 +86,7 @@ class PickClutterEnv(StationaryManipulationEnv):
             0.01, color=(0, 1, 0), name="_goal_site"
         )
 
-    def _load_model(self, model_id, model_scale=1.0) -> sapien.Actor:
+    def _load_model(self, model_id, model_scale=1.0) -> sapien.Entity:
         raise NotImplementedError
 
     def reset(self, seed=None, reconfigure=False, episode_idx=None):
@@ -135,7 +140,9 @@ class PickClutterEnv(StationaryManipulationEnv):
     @property
     def obj_pose(self):
         """Get the center of mass (COM) pose."""
-        return self.obj.pose.transform(self.obj.cmass_local_pose)
+        return self.obj.pose * self.obj.find_component_by_type(
+            physx.PhysxRigidDynamicComponent
+        ).cmass_local_pose
 
     def _initialize_task(self):
         self._set_target()
@@ -228,11 +235,11 @@ class PickClutterEnv(StationaryManipulationEnv):
 
     def render(self, mode="human"):
         if mode in ["human", "rgb_array"]:
-            set_actor_visibility(self.target_site, 0.8)
-            set_actor_visibility(self.goal_site, 0.5)
+            set_entity_visibility(self.target_site, 0.8)
+            set_entity_visibility(self.goal_site, 0.5)
             ret = super().render(mode=mode)
-            set_actor_visibility(self.target_site, 0)
-            set_actor_visibility(self.goal_site, 0)
+            set_entity_visibility(self.target_site, 0)
+            set_entity_visibility(self.goal_site, 0)
         else:
             ret = super().render(mode=mode)
         return ret
@@ -263,5 +270,8 @@ class PickClutterYCBEnv(PickClutterEnv):
             root_dir=self.asset_root,
         )
         obj.name = model_id
-        obj.set_damping(0.1, 0.1)
+
+        obj_comp = obj.find_component_by_type(physx.PhysxRigidDynamicComponent)
+        obj_comp.set_linear_damping(0.1)
+        obj_comp.set_angular_damping(0.1)
         return obj

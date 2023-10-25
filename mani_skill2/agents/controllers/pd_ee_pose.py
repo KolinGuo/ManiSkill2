@@ -2,14 +2,14 @@ from dataclasses import dataclass
 from typing import Sequence, Union
 
 import numpy as np
-import sapien.core as sapien
+import sapien
 from gym import spaces
 from scipy.spatial.transform import Rotation
 
-from mani_skill2.utils.sapien_utils import get_entity_by_name, vectorize_pose
+from mani_skill2.utils.sapien_utils import vectorize_pose
 from mani_skill2.utils.common import clip_and_scale_action
 
-from ..base_controller import BaseController, ControllerConfig
+from ..base_controller import ControllerConfig
 from .pd_joint_pos import PDJointPosController
 
 
@@ -26,13 +26,12 @@ class PDEEPosController(PDJointPosController):
         self.qmask[self.joint_indices] = 1
 
         if self.config.ee_link:
-            self.ee_link = get_entity_by_name(
-                self.articulation.get_links(), self.config.ee_link
-            )
+            self.ee_link = self.articulation.find_link_by_name(self.config.ee_link)
         else:
             # The child link of last joint is assumed to be the end-effector.
             self.ee_link = self.joints[-1].get_child_link()
-        self.ee_link_idx = self.articulation.get_links().index(self.ee_link)
+        self.ee_link_idx = self.ee_link.index
+        self.ee_link = self.ee_link.entity
 
     def _initialize_action_space(self):
         low = np.float32(np.broadcast_to(self.config.lower, 3))
@@ -50,7 +49,7 @@ class PDEEPosController(PDJointPosController):
     @property
     def ee_pose_at_base(self):
         to_base = self.articulation.pose.inv()
-        return to_base.transform(self.ee_pose)
+        return to_base * self.ee_pose
 
     def reset(self):
         super().reset()
@@ -64,7 +63,7 @@ class PDEEPosController(PDJointPosController):
             if joint.type != "revolute":
                 continue
 
-            low, high = joint.get_limits()[0]
+            low, high = joint.limit[0]
             tgt_dist = abs(tgt_val - cur_val)
             # Check tgt_val - 2 * np.pi
             if (

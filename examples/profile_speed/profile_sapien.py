@@ -6,8 +6,8 @@ import gym
 from gym.utils import seeding
 from gym import spaces
 
-import sapien.core as sapien
-from sapien.core import Pose
+import sapien
+from sapien import Pose
 from sapien.utils.viewer import Viewer
 import PIL.Image as Image
 from transforms3d.euler import euler2quat

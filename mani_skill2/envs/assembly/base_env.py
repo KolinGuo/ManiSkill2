@@ -1,8 +1,8 @@
 from typing import Type, Union
 
 import numpy as np
-import sapien.core as sapien
-from sapien.core import Pose
+import sapien
+from sapien import Pose
 
 from mani_skill2.agents.base_agent import BaseAgent
 from mani_skill2.agents.configs.panda.defaults import PandaRealSensed435Config
@@ -11,7 +11,6 @@ from mani_skill2.agents.robots.xmate3 import Xmate3Robotiq
 from mani_skill2.envs.sapien_env import BaseEnv
 from mani_skill2.sensors.camera import CameraConfig
 from mani_skill2.utils.sapien_utils import (
-    get_entity_by_name,
     look_at,
     set_articulation_render_material,
     vectorize_pose,
@@ -44,9 +43,9 @@ class StationaryManipulationEnv(BaseEnv):
         self.agent = agent_cls(
             self._scene, self._control_freq, self._control_mode, config=self._agent_cfg
         )
-        self.tcp: sapien.Link = get_entity_by_name(
-            self.agent.robot.get_links(), self.agent.config.ee_link_name
-        )
+        self.tcp: sapien.Entity = self.agent.robot.find_link_by_name(
+            self.agent.config.ee_link_name
+        ).entity
         set_articulation_render_material(self.agent.robot, specular=0.9, roughness=0.3)
 
     def _initialize_agent(self):

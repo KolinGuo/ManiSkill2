@@ -13,7 +13,8 @@ from typing import Union
 import gym
 import h5py
 import numpy as np
-import sapien.core as sapien
+import sapien
+import sapien.physx as physx
 from tqdm.auto import tqdm
 from transforms3d.quaternions import quat2axangle
 
@@ -24,7 +25,6 @@ from mani_skill2.envs.sapien_env import BaseEnv
 from mani_skill2.trajectory.merge_trajectory import merge_h5
 from mani_skill2.utils.common import clip_and_scale_action, inv_scale_action
 from mani_skill2.utils.io_utils import load_json
-from mani_skill2.utils.sapien_utils import get_entity_by_name
 from mani_skill2.utils.wrappers import RecordEpisode
 
 
@@ -108,7 +108,7 @@ def from_pd_joint_pos_to_ee(
     ori_arm_controller: PDJointPosController = ori_controller.controllers["arm"]
     arm_controller: PDEEPoseController = controller.controllers["arm"]
     assert arm_controller.config.frame == "ee"
-    ee_link: sapien.Link = arm_controller.ee_link
+    ee_link: physx.PhysxArticulationLinkComponent = arm_controller.ee_link
 
     info = {}
 

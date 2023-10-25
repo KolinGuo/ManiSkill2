@@ -1,11 +1,11 @@
 from collections import OrderedDict
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import Dict, List
 
 import numpy as np
-import sapien.core as sapien
-import trimesh
-from sapien.core import Pose
+import sapien
+import sapien.physx as physx
+from sapien import Pose
 from scipy.spatial.distance import cdist
 from transforms3d.euler import euler2quat
 
@@ -18,13 +18,12 @@ from mani_skill2.utils.geometry import transform_points
 from mani_skill2.utils.io_utils import load_json
 from mani_skill2.utils.registration import register_env
 from mani_skill2.utils.sapien_utils import (
-    get_entity_by_name,
     hex2rgba,
     look_at,
     set_articulation_render_material,
     vectorize_pose,
 )
-from mani_skill2.utils.trimesh_utils import get_actor_mesh
+from mani_skill2.utils.trimesh_utils import get_component_mesh
 
 
 class TurnFaucetBaseEnv(BaseEnv):
@@ -54,9 +53,9 @@ class TurnFaucetBaseEnv(BaseEnv):
         self.agent = agent_cls(
             self._scene, self._control_freq, self._control_mode, config=self._agent_cfg
         )
-        self.tcp: sapien.Link = get_entity_by_name(
-            self.agent.robot.get_links(), self.agent.config.ee_link_name
-        )
+        self.tcp: sapien.Entity = self.agent.robot.find_link_by_name(
+            self.agent.config.ee_link_name
+        ).entity
         set_articulation_render_material(self.agent.robot, specular=0.9, roughness=0.3)
 
     def _initialize_agent(self):
@@ -93,10 +92,11 @@ class TurnFaucetBaseEnv(BaseEnv):
         self._viewer.set_camera_rpy(0, -0.5, 3.14)
 
 
+        import sapien.physx as physx
 @register_env("TurnFaucet-v0", max_episode_steps=200)
 class TurnFaucetEnv(TurnFaucetBaseEnv):
-    target_link: sapien.Link
-    target_joint: sapien.Joint
+    target_link: physx.PhysxArticulationLinkComponent
+    target_joint: physx.PhysxArticulationJoint
 
     def __init__(
         self,
@@ -190,7 +190,7 @@ class TurnFaucetEnv(TurnFaucetBaseEnv):
         # Set friction and damping for all joints
         for joint in self.faucet.get_active_joints():
             joint.set_friction(1.0)
-            joint.set_drive_property(0.0, 10.0)
+            joint.set_drive_properties(0.0, 10.0)
 
         self._set_switch_links()
 
@@ -225,30 +225,29 @@ class TurnFaucetEnv(TurnFaucetBaseEnv):
         self.switch_links = []
         self.switch_links_mesh = []
         self.switch_joints = []
-        all_links = self.faucet.get_links()
         all_joints = self.faucet.get_joints()
         for name in self.switch_link_names:
-            link = get_entity_by_name(all_links, name)
+            link = self.faucet.find_link_by_name(name)
+
             self.switch_links.append(link)
 
             # cache mesh
-            link_mesh = get_actor_mesh(link, False)
+            link_mesh = get_component_mesh(link, False)
             self.switch_links_mesh.append(link_mesh)
 
             # hardcode
-            joint = all_joints[link.get_index()]
+            joint = all_joints[link.index]
             joint.set_friction(0.1)
-            joint.set_drive_property(0.0, 2.0)
+            joint.set_drive_properties(0.0, 2.0)
             self.switch_joints.append(joint)
 
     def _load_agent(self):
         super()._load_agent()
 
-        links = self.agent.robot.get_links()
-        self.lfinger = get_entity_by_name(links, "panda_leftfinger")
-        self.rfinger = get_entity_by_name(links, "panda_rightfinger")
-        self.lfinger_mesh = get_actor_mesh(self.lfinger, False)
-        self.rfinger_mesh = get_actor_mesh(self.rfinger, False)
+        self.lfinger = self.agent.robot.find_link_by_name("panda_leftfinger").entity
+        self.rfinger = self.agent.robot.find_link_by_name("panda_rightfinger").entity
+        self.lfinger_mesh = get_component_mesh(self.lfinger, False)
+        self.rfinger_mesh = get_component_mesh(self.rfinger, False)
 
     def _initialize_articulations(self):
         p = np.zeros(3)
@@ -283,8 +282,8 @@ class TurnFaucetEnv(TurnFaucetBaseEnv):
         idx = random_choice(np.arange(n_switch_links), self._episode_rng)
 
         self.target_link_name = self.switch_link_names[idx]
-        self.target_link: sapien.Link = self.switch_links[idx]
-        self.target_joint: sapien.Joint = self.switch_joints[idx]
+        self.target_link: physx.PhysxArticulationLinkComponent = self.switch_links[idx]
+        self.target_joint: physx.PhysxArticulationJoint = self.switch_joints[idx]
         self.target_joint_idx = self.faucet.get_active_joints().index(self.target_joint)
 
         # x-axis is the revolute joint direction

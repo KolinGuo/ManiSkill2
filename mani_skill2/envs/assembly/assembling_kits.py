@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import List
 
 import numpy as np
-import sapien.core as sapien
+import sapien
 from transforms3d.euler import euler2quat, quat2euler
 
 from mani_skill2 import format_path
@@ -86,7 +86,7 @@ class AssemblingKitsEnv(StationaryManipulationEnv):
         visual_path = self._models_dir / "visual" / f"{object_id:02d}.obj"
 
         builder = self._scene.create_actor_builder()
-        builder.add_multiple_collisions_from_file(
+        builder.add_multiple_convex_collisions_from_file(
             str(collision_path), scale=self.object_scale
         )
 
@@ -161,7 +161,7 @@ class AssemblingKitsEnv(StationaryManipulationEnv):
                 rot_diff = self.symmetry[self.object_id] - rot_diff
         return rot_diff, rot_diff < rot_eps
 
-    def _check_in_slot(self, obj: sapien.Actor, height_eps=3e-3):
+    def _check_in_slot(self, obj: sapien.Entity, height_eps=3e-3):
         return obj.pose.p[2] < height_eps
 
     def evaluate(self, **kwargs) -> dict:
@@ -184,7 +184,7 @@ class AssemblingKitsEnv(StationaryManipulationEnv):
 
         reward = 0.0
         gripper_width = (
-            self.agent.robot.get_qlimits()[-1, 1] * 2
+            self.agent.robot.qlimit[-1, 1] * 2
         )  # NOTE: hard-coded with panda
 
         # reaching reward

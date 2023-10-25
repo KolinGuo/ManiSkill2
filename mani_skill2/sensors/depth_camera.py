@@ -1,12 +1,14 @@
 from collections import OrderedDict
-from typing import Dict, List, Sequence
+from typing import Dict
 
 import numpy as np
-import sapien.core as sapien
+import sapien
+import sapien.physx as physx
 from gym import spaces
-from sapien.sensor import StereoDepthSensor, StereoDepthSensorConfig
+# TODO: sapien3 StereoDepthSensor is yet to come
+# from sapien.sensor import StereoDepthSensor, StereoDepthSensorConfig
 
-from mani_skill2.utils.sapien_utils import get_entity_by_name
+from mani_skill2.utils.sapien_utils import get_obj_by_name, hide_entity
 
 from .camera import Camera, CameraConfig
 
@@ -36,31 +38,31 @@ class StereoDepthCamera(Camera):
         camera_cfg: StereoDepthCameraConfig,
         scene: sapien.Scene,
         renderer_type: str,
-        articulation: sapien.Articulation = None,
+        articulation: physx.PhysxArticulation = None,
     ):
         self.camera_cfg = camera_cfg
         assert renderer_type == "sapien", renderer_type
         self.renderer_type = renderer_type
 
-        actor_uid = camera_cfg.actor_uid
-        if actor_uid is None:
-            self.actor = None
+        entity_uid = camera_cfg.entity_uid
+        if entity_uid is None:
+            self.entity = None
         else:
             if articulation is None:
-                self.actor = get_entity_by_name(scene.get_all_actors(), actor_uid)
+                self.entity = get_obj_by_name(scene.entities, entity_uid)
             else:
-                self.actor = get_entity_by_name(articulation.get_links(), actor_uid)
-            if self.actor is None:
-                raise RuntimeError(f"Mount actor ({actor_uid}) is not found")
+                self.entity = articulation.find_link_by_name(entity_uid).entity
+            if self.entity is None:
+                raise RuntimeError(f"Mount actor ({entity_uid}) is not found")
 
         # Add camera
         sensor_config = StereoDepthSensorConfig()
         sensor_config.rgb_resolution = camera_cfg.rgb_resolution
         sensor_config.rgb_intrinsic = camera_cfg.rgb_intrinsic
         sensor_config.min_depth = camera_cfg.min_depth
-        if self.actor is None:
+        if self.entity is None:
             self.camera = StereoDepthSensor(
-                camera_cfg.uid, scene, sensor_config, mount=self.actor
+                camera_cfg.uid, scene, sensor_config, mount=self.entity
             )
             self.camera.set_pose(camera_cfg.pose)
         else:
@@ -68,17 +70,17 @@ class StereoDepthCamera(Camera):
                 camera_cfg.uid,
                 scene,
                 sensor_config,
-                mount=self.actor,
+                mount=self.entity,
                 pose=camera_cfg.pose,
             )
 
         if camera_cfg.hide_link:
-            self.actor.hide_visual()
+            hide_entity(self.entity)
 
         # Filter texture names according to renderer type if necessary (legacy for Kuafu)
         self.texture_names = camera_cfg.texture_names
 
-    def get_images(self, take_picture=False):
+    def get_images(self, take_picture=False) -> Dict[str, np.ndarray]:
         """Get (raw) images from the camera."""
         if take_picture:
             self.take_picture()
@@ -89,25 +91,29 @@ class StereoDepthCamera(Camera):
         images = {}
         for name in self.texture_names:
             if name == "Color":
-                image = self.camera._cam_rgb.get_float_texture("Color")
+                image = self.camera._cam_rgb.get_picture(name)
             elif name == "depth":
                 self.camera.compute_depth()
                 image = self.camera.get_depth()[..., None]
             elif name == "Position":
                 self.camera.compute_depth()
-                position = self.camera._cam_rgb.get_float_texture("Position")
+                position = self.camera._cam_rgb.get_picture(name)
                 depth = self.camera.get_depth()
                 position[..., 2] = -depth
                 image = position
             elif name == "Segmentation":
-                image = self.camera._cam_rgb.get_uint32_texture("Segmentation")
+                image = self.camera._cam_rgb.get_picture(name)
             else:
                 raise NotImplementedError(name)
             images[name] = image
         return images
 
-    def get_params(self):
-        """Get camera parameters."""
+    def get_params(self) -> Dict[str, np.ndarray]:
+        """Get camera parameters.
+        :return extrinsic_cv: extrinsics in OpenCV format, [3, 4] np.float32 np.ndarray
+        :return cam2world_gl: extrinsics in OpenGL format, [4, 4] np.float32 np.ndarray
+        :return intrinsic_cv: intrinsic matrix, [3, 3] np.float32 np.ndarray
+        """
         return dict(
             extrinsic_cv=self.camera._cam_rgb.get_extrinsic_matrix(),
             cam2world_gl=self.camera._cam_rgb.get_model_matrix(),

@@ -1,13 +1,10 @@
 import numpy as np
-import sapien.core as sapien
+import sapien
 
 from mani_skill2.agents.base_agent import BaseAgent
 from mani_skill2.agents.configs.xmate3 import defaults
 from mani_skill2.utils.common import compute_angle_between
-from mani_skill2.utils.sapien_utils import (
-    get_entity_by_name,
-    get_pairwise_contact_impulse,
-)
+from mani_skill2.utils.sapien_utils import get_pairwise_contact_impulse
 
 
 class Xmate3Robotiq(BaseAgent):
@@ -18,19 +15,19 @@ class Xmate3Robotiq(BaseAgent):
         return defaults.Xmate3RobotiqDefaultConfig()
 
     def _after_init(self):
-        self.finger1_link: sapien.LinkBase = get_entity_by_name(
-            self.robot.get_links(), "left_inner_finger_pad"
-        )
-        self.finger2_link: sapien.LinkBase = get_entity_by_name(
-            self.robot.get_links(), "right_inner_finger_pad"
-        )
+        self.finger1_link: sapien.Entity = self.robot.find_link_by_name(
+            "left_inner_finger_pad"
+        ).entity
+        self.finger2_link: sapien.Entity = self.robot.find_link_by_name(
+            "right_inner_finger_pad"
+        ).entity
 
-    def check_grasp(self, actor: sapien.ActorBase, min_impulse=1e-6, max_angle=85):
-        assert isinstance(actor, sapien.ActorBase), type(actor)
+    def check_grasp(self, entity: sapien.Entity, min_impulse=1e-6, max_angle=85):
+        assert isinstance(entity, sapien.Entity), type(entity)
         contacts = self.scene.get_contacts()
 
-        limpulse = get_pairwise_contact_impulse(contacts, self.finger1_link, actor)
-        rimpulse = get_pairwise_contact_impulse(contacts, self.finger2_link, actor)
+        limpulse = get_pairwise_contact_impulse(contacts, self.finger1_link, entity)
+        rimpulse = get_pairwise_contact_impulse(contacts, self.finger2_link, entity)
 
         # direction to open the gripper
         ldirection = self.finger1_link.pose.to_transformation_matrix()[:3, 2]
@@ -58,4 +55,4 @@ class Xmate3Robotiq(BaseAgent):
         T = np.eye(4)
         T[:3, :3] = np.stack([approaching, closing, ortho], axis=1)
         T[:3, 3] = center
-        return sapien.Pose.from_transformation_matrix(T)
+        return sapien.Pose(T)

@@ -1,6 +1,14 @@
 from copy import deepcopy
 
-from mani_skill2.agents.controllers import *
+from mani_skill2.agents.controllers import (
+    deepcopy_dict,
+    PDJointPosControllerConfig,
+    PDEEPosControllerConfig,
+    PDEEPoseControllerConfig,
+    PDJointVelControllerConfig,
+    PDJointPosVelControllerConfig,
+    PDJointPosMimicControllerConfig
+)
 from mani_skill2.sensors.camera import CameraConfig
 
 
@@ -189,7 +197,7 @@ class PandaDefaultConfig:
             fov=1.57,
             near=0.01,
             far=10,
-            actor_uid="panda_hand",
+            entity_uid="panda_hand",
         )
 
 
@@ -276,5 +284,5 @@ class PandaRealSensed435Config(PandaDefaultConfig):
             fov=1.57,
             near=0.01,
             far=10,
-            actor_uid="camera_link",
+            entity_uid="camera_link",
         )

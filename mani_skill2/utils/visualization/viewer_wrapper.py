@@ -1,10 +1,11 @@
 import numpy as np
 import gym
 from collections import OrderedDict
-from sapien.core import Pose, ActorBase
-from sapien.core import renderer as R
+import sapien
+from sapien import internal_renderer as R
 from mani_skill2.utils.geometry import rotation_between_vec
 from mani_skill2.utils.sapien_utils import get_pairwise_contacts
+
 
 class SapienViewerWrapper(gym.Wrapper):
     def __init__(self, env: gym.Env):
@@ -179,7 +180,7 @@ class SapienViewerWrapper(gym.Wrapper):
                                          pos, scale=scale)
                     self.toggle_render_node(pt_name, show=True)
 
-    def show_contact_visualization(self, actor0: ActorBase, actor1: ActorBase,
+    def show_contact_visualization(self, actor0: sapien.Entity, actor1: sapien.Entity,
                                    draw_separate=True,
                                    scale=[0.05, 0.05, 0.05], color='yellow'):
         """Visualize contact impulse acting on actor0"""

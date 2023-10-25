@@ -2,7 +2,7 @@ import os
 import sys
 import pickle
 import numpy as np
-import sapien.core as sapien
+import sapien
 from transforms3d.quaternions import axangle2quat
 from mani_skill2.envs.mpm.base_env import MPMBaseEnv, MPMModelBuilder
 from mani_skill2.agents.robots.panda import Panda
@@ -14,14 +14,7 @@ from warp_maniskill.mpm.mpm_simulator import (
 )
 
 from transforms3d.euler import euler2quat
-from mani_skill2.utils.sapien_utils import (
-    get_entity_by_name,
-)
-
-from mani_skill2.utils.sapien_utils import (
-    get_entity_by_name,
-    vectorize_pose,
-)
+from mani_skill2.utils.sapien_utils import vectorize_pose
 
 from collections import OrderedDict
 
@@ -164,16 +157,9 @@ class HangEnv(MPMBaseEnv):
             control_mode=self._control_mode,
             config=self._agent_cfg,
         )
-        self.grasp_site: sapien.Link = get_entity_by_name(
-            self.agent.robot.get_links(), "panda_hand"
-        )
-
-        self.lfinger = get_entity_by_name(
-            self.agent.robot.get_links(), "panda_leftfinger"
-        )
-        self.rfinger = get_entity_by_name(
-            self.agent.robot.get_links(), "panda_rightfinger"
-        )
+        self.grasp_site = self.agent.robot.find_link_by_name("panda_hand").entity
+        self.lfinger = self.agent.robot.find_link_by_name("panda_leftfinger").entity
+        self.rfinger = self.agent.robot.find_link_by_name("panda_rightfinger").entity
 
     def _load_actors(self):
         super()._load_actors()
@@ -223,7 +209,7 @@ class HangEnv(MPMBaseEnv):
 
     def _get_obs_extra(self) -> OrderedDict:
         return OrderedDict(
-            tcp_pose=vectorize_pose(self.grasp_site.get_pose()),
+            tcp_pose=vectorize_pose(self.grasp_site.pose),
             target=np.hstack([self.rod.get_pose().p, self.rod.get_pose().q]),
         )
 
@@ -231,8 +217,8 @@ class HangEnv(MPMBaseEnv):
         particles_x = self.get_mpm_state()["x"]
         particles_v = self.get_mpm_state()["v"]
 
-        lf_pos = self.lfinger.get_pose().p
-        rf_pos = self.rfinger.get_pose().p
+        lf_pos = self.lfinger.pose.p
+        rf_pos = self.rfinger.pose.p
         finger_dist = np.linalg.norm(lf_pos - rf_pos)
 
         pose = self.rod.pose
@@ -269,7 +255,7 @@ class HangEnv(MPMBaseEnv):
 
     def compute_dense_reward(self, reward_info=False, **kwargs):
         gripper_width = (
-            self.agent.robot.get_qlimits()[-1, 1] * 2
+            self.agent.robot.qlimit[-1, 1] * 2
         )  # NOTE: hard-coded with panda
         if self.evaluate()["success"]:
             reward = 6
@@ -280,7 +266,7 @@ class HangEnv(MPMBaseEnv):
             release_reward = 1
         else:
             # reaching reward
-            gripper_pos = self.grasp_site.get_pose().p
+            gripper_pos = self.grasp_site.pose.p
             particles_x = self.get_mpm_state()["x"]
             distance = np.min(np.linalg.norm(particles_x - gripper_pos, axis=-1))
             reaching_reward = 1 - np.tanh(10.0 * distance)

@@ -1,7 +1,8 @@
 import numpy as np
-import sapien.core as sapien
+import sapien
+import sapien.physx as physx
+from sapien import Pose
 import trimesh
-from sapien.core import Pose
 from scipy.spatial import distance as sdist
 from transforms3d.euler import euler2quat, quat2euler
 from transforms3d.quaternions import quat2mat
@@ -163,13 +164,13 @@ class MoveBucketEnv(MS1BaseEnv):
         # Finalize bucket pose
         self.bucket.set_pose(pose)
         self.init_bucket_height = (
-            self.bucket_body_link.get_pose()
-            .transform(self.bucket_body_link.get_cmass_local_pose())
+            (self.bucket_body_link.get_pose()
+                * self.bucket_body_link.get_cmass_local_pose())
             .p[2]
         )
 
         # Finalize the bucket joint state
-        self.bucket.set_qpos(self.bucket.get_qlimits()[:, 0])
+        self.bucket.set_qpos(self.bucket.qlimit[:, 0])
         self.bucket.set_qvel(np.zeros(self.bucket.dof))
 
     def _initialize_robot(self):
@@ -271,7 +272,7 @@ class MoveBucketEnv(MS1BaseEnv):
         """Get the point cloud of the bucket given its current joint positions."""
         links_pcd = []
         for name, info in self.links_info.items():
-            link: sapien.LinkBase = info[0]
+            link: physx.PhysxArticulationLinkComponent = info[0]
             pcd: np.ndarray = info[2]
             T = link.pose.to_transformation_matrix()
             pcd = transform_points(T, pcd)
@@ -297,8 +298,8 @@ class MoveBucketEnv(MS1BaseEnv):
 
         # EE adjust height
         bucket_mid = (
-            self.bucket_body_link.get_pose()
-            .transform(self.bucket_body_link.get_cmass_local_pose())
+            (self.bucket_body_link.get_pose()
+                * self.bucket_body_link.get_cmass_local_pose())
             .p
         )
         bucket_mid[2] += self.bucket_center_offset
@@ -334,8 +335,8 @@ class MoveBucketEnv(MS1BaseEnv):
         stage_reward = 0
 
         bucket_height = (
-            self.bucket_body_link.get_pose()
-            .transform(self.bucket_body_link.get_cmass_local_pose())
+            (self.bucket_body_link.get_pose()
+                * self.bucket_body_link.get_cmass_local_pose())
             .p[2]
         )
         dist_bucket_height = np.linalg.norm(
@@ -348,8 +349,8 @@ class MoveBucketEnv(MS1BaseEnv):
             reward += ees_oppo * 2  # - np.clip(log_ees_height_diff, -10, 0) * 0.2
 
             bucket_height = (
-                self.bucket_body_link.get_pose()
-                .transform(self.bucket_body_link.get_cmass_local_pose())
+                (self.bucket_body_link.get_pose()
+                    * self.bucket_body_link.get_cmass_local_pose())
                 .p[2]
             )
             dist_bucket_height = np.linalg.norm(

@@ -1,8 +1,9 @@
 from collections import OrderedDict
 
 import numpy as np
-import sapien.core as sapien
-from sapien.core import Pose
+import sapien
+import sapien.physx as physx
+from sapien import Pose
 from transforms3d.euler import euler2quat
 from transforms3d.quaternions import qinverse, qmult, quat2axangle
 
@@ -139,13 +140,13 @@ class PlugChargerEnv(StationaryManipulationEnv):
             )
 
     def _initialize_task(self):
-        self.goal_pose = self.receptacle.pose.transform(Pose(q=euler2quat(0, 0, np.pi)))
+        self.goal_pose = self.receptacle.pose * Pose(q=euler2quat(0, 0, np.pi))
         # NOTE(jigu): clearance need to be set to 1e-3 so that the charger will not fall off
         # self.charger.set_pose(self.goal_pose)
 
     @property
     def charger_base_pose(self):
-        return self.charger.pose.transform(Pose([-self._base_size[0], 0, 0]))
+        return self.charger.pose * Pose([-self._base_size[0], 0, 0])
 
     def _get_obs_extra(self) -> OrderedDict:
         obs = OrderedDict(tcp_pose=vectorize_pose(self.tcp.pose))
@@ -184,7 +185,9 @@ class PlugChargerEnv(StationaryManipulationEnv):
         if info["success"]:
             return 50.0
 
-        cmass_pose = self.charger.pose.transform(self.charger.cmass_local_pose)
+        cmass_pose = self.charger.pose * self.charger.find_component_by_type(
+            physx.PhysxRigidDynamicComponent
+        ).cmass_local_pose
         # grasp pose rotation reward
         tcp_pose_wrt_charger = cmass_pose.inv() * self.tcp.pose
         tcp_rot_wrt_charger = tcp_pose_wrt_charger.to_transformation_matrix()[:3, :3]
@@ -302,4 +305,4 @@ class PlugChargerEnv(StationaryManipulationEnv):
 
     def set_state(self, state):
         super().set_state(state)
-        self.goal_pose = self.receptacle.pose.transform(Pose(q=euler2quat(0, 0, np.pi)))
+        self.goal_pose = self.receptacle.pose * Pose(q=euler2quat(0, 0, np.pi))

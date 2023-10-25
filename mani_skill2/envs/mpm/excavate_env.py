@@ -1,22 +1,16 @@
 import numpy as np
-import sapien.core as sapien
+import sapien
 from mani_skill2.agents.configs.panda.variants import PandaBucketConfig
 from mani_skill2.agents.robots.panda import Panda
 from mani_skill2.envs.mpm.base_env import MPMBaseEnv
 from mani_skill2.utils.registration import register_env
 from mani_skill2.sensors.camera import CameraConfig
 
-from mani_skill2.utils.sapien_utils import (
-    get_entity_by_name,
-    vectorize_pose,
-)
+from mani_skill2.utils.sapien_utils import vectorize_pose
 
 from collections import OrderedDict
 
 from transforms3d.euler import euler2quat
-from mani_skill2.utils.sapien_utils import (
-    get_entity_by_name,
-)
 from mani_skill2.envs.mpm import perlin
 
 from mani_skill2.envs.mpm.utils import actor2meshes
@@ -108,9 +102,9 @@ class ExcavateEnv(MPMBaseEnv):
             config=self._agent_cfg,
         )
 
-        self.grasp_site: sapien.Link = get_entity_by_name(
-            self.agent.robot.get_links(), "bucket"
-        )
+        self.grasp_site: sapien.Entity = self.agent.robot.find_link_by_name(
+            "bucket"
+        ).entity
 
     def _initialize_agent(self):
         qpos = np.array([-0.174, 0.457, 0.203, -1.864, -0.093, 2.025, 1.588])
@@ -164,7 +158,7 @@ class ExcavateEnv(MPMBaseEnv):
 
     def _get_obs_extra(self) -> OrderedDict:
         return OrderedDict(
-            tcp_pose=vectorize_pose(self.grasp_site.get_pose()),
+            tcp_pose=vectorize_pose(self.grasp_site.pose),
             target=np.array([self.target_num]),
         )
 
@@ -220,7 +214,7 @@ class ExcavateEnv(MPMBaseEnv):
         )[0]
 
     def _bucket_keypoints(self):
-        gripper_mat = self.grasp_site.get_pose().to_transformation_matrix()
+        gripper_mat = self.grasp_site.pose.to_transformation_matrix()
         bucket_base_mat = np.array(
             [[1, 0, 0, 0], [0, 1, 0, -0.01], [0, 0, 1, 0.045], [0, 0, 0, 1]]
         )
@@ -236,19 +230,19 @@ class ExcavateEnv(MPMBaseEnv):
         bucket_brmat = np.array(
             [[1, 0, 0, 0.03], [0, 1, 0, 0.02], [0, 0, 1, 0.08], [0, 0, 0, 1]]
         )
-        bucket_base_pos = sapien.Pose.from_transformation_matrix(
+        bucket_base_pos = sapien.Pose(
             gripper_mat @ bucket_base_mat
         ).p
-        bucket_tlpos = sapien.Pose.from_transformation_matrix(
+        bucket_tlpos = sapien.Pose(
             gripper_mat @ bucket_tlmat
         ).p
-        bucket_trpos = sapien.Pose.from_transformation_matrix(
+        bucket_trpos = sapien.Pose(
             gripper_mat @ bucket_trmat
         ).p
-        bucket_blpos = sapien.Pose.from_transformation_matrix(
+        bucket_blpos = sapien.Pose(
             gripper_mat @ bucket_blmat
         ).p
-        bucket_brpos = sapien.Pose.from_transformation_matrix(
+        bucket_brpos = sapien.Pose(
             gripper_mat @ bucket_brmat
         ).p
         return (
@@ -357,7 +351,7 @@ class ExcavateEnv(MPMBaseEnv):
             - max(0, lift_num - self.target_num - 500) * 0.001
         )
 
-        gripper_pos = self.grasp_site.get_pose().p
+        gripper_pos = self.grasp_site.pose.p
         height_dist = (
             max(self.target_height + 0.05 - np.mean(lifted_particles[:, 2]), 0)
             if len(lifted_particles) > 0

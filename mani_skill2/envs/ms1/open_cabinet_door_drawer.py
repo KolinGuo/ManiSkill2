@@ -2,9 +2,10 @@ from typing import Type, Union
 from collections import OrderedDict
 
 import numpy as np
-import sapien.core as sapien
+import sapien
+import sapien.physx as physx
+from sapien import Pose
 import trimesh
-from sapien.core import Pose
 from scipy.spatial import distance as sdist
 
 from mani_skill2.agents.base_agent import BaseAgent
@@ -148,7 +149,7 @@ class OpenCabinetEnv(MS1BaseEnv):
         """Ignore collision within the articulation to avoid impact from imperfect collision shapes."""
         # The legacy version only ignores collision of child links of active joints.
         for link in self.cabinet.get_links():
-            for s in link.get_collision_shapes():
+            for s in link.collision_shapes:
                 g0, g1, g2, g3 = s.get_collision_groups()
                 s.set_collision_groups(g0, g1, g2 | 1 << 31, g3)
 
@@ -180,7 +181,7 @@ class OpenCabinetEnv(MS1BaseEnv):
 
     def _initialize_cabinet(self):
         # Set joint positions to lower bounds
-        qlimits = self.cabinet.get_qlimits()  # [N, 2]
+        qlimits = self.cabinet.qlimit  # [N, 2]
         assert not np.isinf(qlimits).any(), qlimits
         qpos = np.ascontiguousarray(qlimits[:, 0])
         # NOTE(jigu): must use a contiguous array for `set_qpos`
@@ -232,7 +233,7 @@ class OpenCabinetEnv(MS1BaseEnv):
     def _set_joint_physical_parameters(self):
         for joint in self.cabinet.get_active_joints():
             joint.set_friction(self._episode_rng.uniform(0.05, 0.15))
-            joint.set_drive_property(
+            joint.set_drive_properties(
                 stiffness=0, damping=self._episode_rng.uniform(5, 20)
             )
 
@@ -244,8 +245,8 @@ class OpenCabinetEnv(MS1BaseEnv):
             self.target_link_idx = self._fixed_target_link_idx
         assert self.target_link_idx < len(self.target_links), self.target_link_idx
 
-        self.target_link: sapien.Link = self.target_links[self.target_link_idx]
-        self.target_joint: sapien.Joint = self.target_joints[self.target_link_idx]
+        self.target_link: physx.PhysxArticulationLinkComponent = self.target_links[self.target_link_idx]
+        self.target_joint: physx.PhysxArticulationJoint = self.target_joints[self.target_link_idx]
         # The index in active joints
         self.target_joint_idx_q = self.cabinet.get_active_joints().index(
             self.target_joint

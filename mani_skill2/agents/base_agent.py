@@ -4,12 +4,15 @@ from pathlib import Path
 from typing import Dict, Union
 
 import numpy as np
-import sapien.core as sapien
+import sapien
+import sapien.physx as physx
 from gym import spaces
 
 from mani_skill2 import format_path
 from mani_skill2.sensors.camera import CameraConfig
-from mani_skill2.utils.sapien_utils import check_urdf_config, parse_urdf_config
+from mani_skill2.utils.sapien_utils import (
+    check_urdf_config, parse_urdf_config, apply_urdf_config
+)
 
 from .base_controller import BaseController, CombinedController, ControllerConfig
 
@@ -34,7 +37,7 @@ class AgentConfig:
 class BaseAgent:
     """Base class for agents.
 
-    Agent is an interface of the robot (sapien.Articulation).
+    Agent is an interface of the robot (physx.PhysxArticulation).
 
     Args:
         scene (sapien.Scene): simulation scene instance.
@@ -44,7 +47,7 @@ class BaseAgent:
         config: agent configuration
     """
 
-    robot: sapien.Articulation
+    robot: physx.PhysxArticulation
     controllers: Dict[str, BaseController]
 
     def __init__(
@@ -92,12 +95,14 @@ class BaseAgent:
         check_urdf_config(urdf_config)
 
         # TODO(jigu): support loading multiple convex collision shapes
-        self.robot = loader.load(urdf_path, urdf_config)
+        apply_urdf_config(loader, urdf_config)
+        self.robot: physx.PhysxArticulation = loader.load(urdf_path)
         assert self.robot is not None, f"Fail to load URDF from {urdf_path}"
         self.robot.set_name(Path(urdf_path).stem)
 
         # Cache robot link ids
-        self.robot_link_ids = [link.get_id() for link in self.robot.get_links()]
+        self.robot_link_ids = [link.entity.per_scene_id
+                               for link in self.robot.get_links()]
 
     def _setup_controllers(self):
         self.controllers = OrderedDict()
@@ -159,6 +164,8 @@ class BaseAgent:
         self.set_control_mode(self._default_control_mode)
 
     def set_action(self, action):
+        if np.isnan(action).any():
+            raise ValueError(f"Action cannot be NaN. Environment received {action=}")
         self.controller.set_action(action)
 
     def before_simulation_step(self):
@@ -179,10 +186,9 @@ class BaseAgent:
         state = OrderedDict()
 
         # robot state
-        root_link = self.robot.get_links()[0]
-        state["robot_root_pose"] = root_link.get_pose()
-        state["robot_root_vel"] = root_link.get_velocity()
-        state["robot_root_qvel"] = root_link.get_angular_velocity()
+        state["robot_root_pose"] = self.robot.get_root_pose()
+        state["robot_root_vel"] = self.robot.get_root_velocity()
+        state["robot_root_qvel"] = self.robot.get_root_angular_velocity()
         state["robot_qpos"] = self.robot.get_qpos()
         state["robot_qvel"] = self.robot.get_qvel()
         state["robot_qacc"] = self.robot.get_qacc()

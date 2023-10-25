@@ -5,8 +5,9 @@ from pathlib import Path
 from typing import Union, Dict, List, Tuple
 
 import numpy as np
-import sapien.core as sapien
-from sapien.core import Pose
+import sapien
+import sapien.physx as physx
+from sapien import Pose
 from transforms3d.euler import euler2quat
 from transforms3d.quaternions import axangle2quat, qmult
 
@@ -29,15 +30,16 @@ from .base_env import StationaryManipulationEnv
 from .pick_single import build_actor_ycb
 
 
-def get_axis_aligned_bbox_for_cube(cube_actor):
-    assert len(cube_actor.get_collision_shapes()) == 1, "More than 1 collision"
+def get_axis_aligned_bbox_for_cube(cube: sapien.Entity):
+    cube_comp = cube.find_component_by_type(physx.PhysxRigidDynamicComponent)
+    assert len(cube_comp.collision_shapes) == 1, "More than 1 collision"
 
     cube_corners = np.array(
         [[-1, -1, -1], [-1, -1, 1], [-1, 1, -1], [-1, 1, 1],
          [1, -1, -1], [1, -1, 1], [1, 1, -1], [1, 1, 1]], dtype='float64'
     )
-    cube_corners *= cube_actor.get_collision_shapes()[0].geometry.half_lengths
-    mat = cube_actor.get_pose().to_transformation_matrix()
+    cube_corners *= cube_comp.collision_shapes[0].half_size
+    mat = cube.pose.to_transformation_matrix()
     world_corners = cube_corners @ mat[:3, :3].T + mat[:3, 3]
     mins = np.min(world_corners, 0)
     maxs = np.max(world_corners, 0)
@@ -386,11 +388,11 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                     "`python -m mani_skill2.utils.download_asset ycb`."
                 )
 
-            collision_file = model_dir / "collision.obj"
+            collision_file = model_dir / "collision.coacd.ply"
             if not collision_file.exists():
                 raise FileNotFoundError(
-                    "convex.obj has been renamed to collision.obj. "
-                    "Please re-download YCB models."
+                    "collision.obj has been renamed to collision.coacd.ply. "
+                    "Please re-generate using coacd."
                 )
 
     def _load_model(self):
@@ -407,7 +409,9 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
     def _load_actors(self):
         self.ground = self._add_ground(render=self.bg_name is None)
         self._load_model()
-        self.bowl.set_damping(0.1, 0.1)
+        bowl_comp = self.bowl.find_component_by_type(physx.PhysxRigidDynamicComponent)
+        bowl_comp.set_linear_damping(0.1)
+        bowl_comp.set_angular_damping(0.1)
         self.cube = self._build_cube(self.cube_half_size,
                                      color=(1, 0, 0), name="cube")
 
@@ -447,8 +451,10 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             self.cube_col = self.cube
 
             # Check collision between these actors during init
-            self.check_col_actor_ids = (self.agent_col.robot_link_ids
-                                        + [self.bowl_col.id, self.cube_col.id])
+            self.check_col_actor_ids = (
+                self.agent_col.robot_link_ids +
+                [self.bowl_col.per_scene_id, self.cube_col.per_scene_id]
+            )
             super().reconfigure()
 
     def _set_model(self, model_id, model_scale):
@@ -534,20 +540,21 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self.cube.set_pose(Pose([10, 0, 0]))
 
         # Lock rotation around x and y
-        self.bowl.lock_motion(0, 0, 0, 1, 1, 0)
+        bowl_comp = self.bowl.find_component_by_type(physx.PhysxRigidDynamicComponent)
+        bowl_comp.set_locked_motion_axes([0, 0, 0, 1, 1, 0])
         self._settle(0.5)
 
         # Unlock motion
-        self.bowl.lock_motion(0, 0, 0, 0, 0, 0)
+        bowl_comp.set_locked_motion_axes([0, 0, 0, 0, 0, 0])
         # NOTE(jigu): Explicit set pose to ensure the actor does not sleep
         self.bowl.set_pose(self.bowl.pose)
-        self.bowl.set_velocity(np.zeros(3))
-        self.bowl.set_angular_velocity(np.zeros(3))
+        bowl_comp.set_linear_velocity(np.zeros(3))
+        bowl_comp.set_angular_velocity(np.zeros(3))
         self._settle(0.5)
 
         # Some objects need longer time to settle
-        lin_vel = np.linalg.norm(self.bowl.velocity)
-        ang_vel = np.linalg.norm(self.bowl.angular_velocity)
+        lin_vel = np.linalg.norm(bowl_comp.linear_velocity)
+        ang_vel = np.linalg.norm(bowl_comp.angular_velocity)
         if lin_vel > 1e-3 or ang_vel > 1e-2:
             self._settle(0.5)
 
@@ -603,10 +610,16 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self.bowl_col.set_pose(self.bowl.pose)
         self.cube_col.set_pose(self.cube.pose)
         # Reset actor velocities
-        self.bowl_col.set_velocity(np.zeros(3))
-        self.bowl_col.set_angular_velocity(np.zeros(3))
-        self.cube_col.set_velocity(np.zeros(3))
-        self.cube_col.set_angular_velocity(np.zeros(3))
+        bowl_comp = self.bowl_col.find_component_by_type(
+            physx.PhysxRigidDynamicComponent
+        )
+        bowl_comp.set_linear_velocity(np.zeros(3))
+        bowl_comp.set_angular_velocity(np.zeros(3))
+        cube_comp = self.cube_col.find_component_by_type(
+            physx.PhysxRigidDynamicComponent
+        )
+        cube_comp.set_linear_velocity(np.zeros(3))
+        cube_comp.set_angular_velocity(np.zeros(3))
 
         if robot_qpos is not None:
             self.agent_col.reset(robot_qpos)
@@ -615,15 +628,16 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
 
         for contact in self._scene_col.get_contacts():
             for point in contact.points:
-                actor0, actor1 = contact.actor0, contact.actor1
+                entity0 = contact.components[0].entity
+                entity1 = contact.components[1].entity
                 if (
-                    actor0.id in self.check_col_actor_ids
-                    and actor1.id in self.check_col_actor_ids
+                    entity0.per_scene_id in self.check_col_actor_ids
+                    and entity1.per_scene_id in self.check_col_actor_ids
                     and (sep := point.separation) < 0
                     and (impulse_norm := np.linalg.norm(point.impulse)) > thres
                 ):
                     if verbose:
-                        print(f"[ENV] Contact: {actor0.name=}, {actor1.name=},"
+                        print(f"[ENV] Contact: {entity0.name=}, {entity1.name=},"
                               f" {sep = :.3e}, {impulse_norm = :.3e}")
                     return True
         return False
@@ -634,8 +648,8 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         for cam_name, cam_capture in image_obs.items():
             seg_mask = cam_capture["Segmentation"][..., 1]
 
-            cube_px_cnt = (seg_mask == self.cube.id).sum()
-            bowl_px_cnt = (seg_mask == self.bowl.id).sum()
+            cube_px_cnt = (seg_mask == self.cube.per_scene_id).sum()
+            bowl_px_cnt = (seg_mask == self.bowl.per_scene_id).sum()
             if cube_px_cnt >= 400 and bowl_px_cnt >= 2500:
                 return True
         return False
@@ -645,12 +659,14 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         Check if ee_pose is feasible and collision free using IK"""
         if self.pmodel is None:
             self.pmodel = self.agent.robot.create_pinocchio_model()
-            self.ee_link_idx = self.agent.robot.get_links().index(self.tcp)
+            self.ee_link_idx = self.tcp.find_component_by_type(
+                physx.PhysxArticulationLinkComponent
+            ).index
 
         T_world_ee_poses = [Pose(cube_pos, self.tcp.pose.q)]
         T_world_robot = self.agent.robot.pose
         T_robot_ee_poses = [
-            T_world_robot.inv().transform(T_we) for T_we in T_world_ee_poses
+            T_world_robot.inv() * T_we for T_we in T_world_ee_poses
         ]
 
         cur_robot_qpos = self.agent.robot.get_qpos()
@@ -1060,11 +1076,11 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         if hasattr(self, "_recent_gt_actor_mask"):
             sam_eval_dict["cube_mask_iou"] = self.get_mask_iou(
                 self.recent_sam_obs["pred_masks"] == 1,
-                self._recent_gt_actor_mask == self.cube.id
+                self._recent_gt_actor_mask == self.cube.per_scene_id
             )
             sam_eval_dict["bowl_mask_iou"] = self.get_mask_iou(
                 self.recent_sam_obs["pred_masks"] == 2,
-                self._recent_gt_actor_mask == self.bowl.id
+                self._recent_gt_actor_mask == self.bowl.per_scene_id
             )
 
         if self.success_needs_high_gripper:
@@ -1146,7 +1162,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
                 if self.bg_mask_obs:
                     actor_mask = seg_obs[..., [1]]
                     cam_obs["bg_mask"] = (
-                        (actor_mask == 0) | (actor_mask == self.ground.id)
+                        (actor_mask == 0) | (actor_mask == self.ground.per_scene_id)
                     )
             obs = resize_obs_images(obs, self.image_obs_shape)
 
@@ -1209,7 +1225,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             if self.ungrasp_sparse_reward and (not info["is_cube_grasped"]):
                 reward += 1.0 * self.ungrasp_reward_scale
             elif not self.ungrasp_sparse_reward:
-                max_gripper_width = self.agent.robot.get_qlimits()[-2:, -1].sum()
+                max_gripper_width = self.agent.robot.qlimit[-2:, -1].sum()
                 gripper_width = self.agent.robot.get_qpos()[-2:].sum()
                 reward += gripper_width / max_gripper_width * self.ungrasp_reward_scale
 
@@ -1284,7 +1300,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             reward = 5.0
 
             # ungrasp reward
-            max_gripper_width = self.agent.robot.get_qlimits()[-2:, -1].sum()
+            max_gripper_width = self.agent.robot.qlimit[-2:, -1].sum()
             gripper_width = self.agent.robot.get_qpos()[-2:].sum()
             reward += gripper_width / max_gripper_width
 
@@ -1375,8 +1391,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         qvel = self.agent.robot.get_qvel()[:-2]
         return np.max(np.abs(qvel)) <= thresh
 
-    def check_actor_static(self, actor: sapien.Actor,
-                           max_v=None, max_ang_v=None):
+    def check_actor_static(self, actor: sapien.Entity, max_v=None, max_ang_v=None):
         """Check whether the actor is static by finite difference.
         Note that the angular velocity is normalized by pi due to legacy issues
         """

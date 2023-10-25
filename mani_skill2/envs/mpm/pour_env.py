@@ -2,7 +2,8 @@ import os
 import numpy as np
 from mani_skill2.agents.robots.panda import Panda
 from mani_skill2 import PACKAGE_ASSET_DIR
-import sapien.core as sapien
+import sapien
+import sapien.physx as physx
 from collections import OrderedDict
 from mani_skill2.agents.configs.panda.variants import PandaPourConfig
 from mani_skill2.envs.mpm.base_env import MPMBaseEnv, MPMModelBuilder, MPMSimulator
@@ -14,10 +15,7 @@ from mani_skill2.utils.geometry import (
 from mani_skill2.utils.registration import register_env
 from mani_skill2.sensors.camera import CameraConfig
 from transforms3d.euler import euler2quat
-from mani_skill2.utils.sapien_utils import (
-    get_entity_by_name,
-    vectorize_pose,
-)
+from mani_skill2.utils.sapien_utils import vectorize_pose
 
 from collections import OrderedDict
 
@@ -105,14 +103,18 @@ class PourEnv(MPMBaseEnv):
 
         b = self._scene.create_actor_builder()
         b.add_visual_from_file(bottle_file, scale=[0.025] * 3)
-        b.add_collision_from_file(bottle_file, scale=[0.025] * 3, density=300)
+        b.add_multiple_convex_collisions_from_file(
+            bottle_file, scale=[0.025] * 3, density=300, decomposition="none",
+        )
         self.source_container = b.build("bottle")
         self.source_aabb = get_local_axis_aligned_bbox_for_link(self.source_container)
 
         target_radius = 0.04
         b = self._scene.create_actor_builder()
         b.add_visual_from_file(beaker_file, scale=[target_radius] * 3)
-        b.add_collision_from_file(beaker_file, scale=[target_radius] * 3, density=300)
+        b.add_multiple_convex_collisions_from_file(
+            beaker_file, scale=[target_radius] * 3, density=300, decomposition="none",
+        )
         self.target_beaker = b.build_kinematic("target_beaker")
         self.target_aabb = get_local_axis_aligned_bbox_for_link(self.target_beaker)
         self.target_aabc = get_local_aabc_for_actor(self.target_beaker)
@@ -135,15 +137,9 @@ class PourEnv(MPMBaseEnv):
             control_mode=self._control_mode,
             config=self._agent_cfg,
         )
-        self.grasp_site: sapien.Link = get_entity_by_name(
-            self.agent.robot.get_links(), "panda_hand_tcp"
-        )
-        self.lfinger = get_entity_by_name(
-            self.agent.robot.get_links(), "panda_leftfinger"
-        )
-        self.rfinger = get_entity_by_name(
-            self.agent.robot.get_links(), "panda_rightfinger"
-        )
+        self.grasp_site = self.agent.robot.find_link_by_name("panda_hand_tcp").entity
+        self.lfinger = self.agent.robot.find_link_by_name("panda_leftfinger").entity
+        self.rfinger = self.agent.robot.find_link_by_name("panda_rightfinger").entity
 
     def _setup_mpm(self):
         self.model_builder = MPMModelBuilder()
@@ -221,8 +217,11 @@ class PourEnv(MPMBaseEnv):
         self.target_beaker.set_pose(self._target_pos)
         self.source_container.set_pose(self._source_pos)
 
-        self.source_container.set_velocity([0, 0, 0])
-        self.source_container.set_angular_velocity([0, 0, 0])
+        obj_comp = self.source_container.find_component_by_type(
+            physx.PhysxRigidDynamicComponent
+        )
+        obj_comp.set_linear_velocity(np.zeros(3))
+        obj_comp.set_angular_velocity(np.zeros(3))
 
         vs = self.target_beaker.get_visual_bodies()
         assert len(vs) == 1
@@ -328,7 +327,7 @@ class PourEnv(MPMBaseEnv):
 
     def _get_obs_extra(self) -> OrderedDict:
         return OrderedDict(
-            tcp_pose=vectorize_pose(self.grasp_site.get_pose()),
+            tcp_pose=vectorize_pose(self.grasp_site.pose),
             target=np.array([self.h1]),
         )
 

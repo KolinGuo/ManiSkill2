@@ -3,8 +3,9 @@ from typing import Dict, List, Tuple
 from pathlib import Path
 
 import numpy as np
-import sapien.core as sapien
-from sapien.core import Pose
+import sapien
+import sapien.physx as physx
+from sapien import Pose
 
 from mani_skill2 import format_path
 from mani_skill2.agents.robots.mobile_panda import DummyMobileAgent
@@ -106,7 +107,7 @@ class MS1BaseEnv(BaseEnv):
         # Create a collision ground plane
         ground = self._add_ground(render=False)
         # Specify a collision (ignore) group to avoid collision with robot torso
-        cs = ground.get_collision_shapes()[0]
+        cs = ground.collision_shapes[0]
         cg = cs.get_collision_groups()
         cg[2] = cg[2] | 1 << 30
         cs.set_collision_groups(*cg)
@@ -151,7 +152,7 @@ class MS1BaseEnv(BaseEnv):
     # -------------------------------------------------------------------------- #
     # Success
     # -------------------------------------------------------------------------- #
-    def check_actor_static(self, actor: sapien.Actor, max_v=None, max_ang_v=None):
+    def check_actor_static(self, actor: sapien.Entity, max_v=None, max_ang_v=None):
         """Check whether the actor is static by finite difference.
         Note that the angular velocity is normalized by pi due to legacy issues.
         """
@@ -205,11 +206,11 @@ class MS1BaseEnv(BaseEnv):
         obs.update(self.agent.get_fingers_info())
         return obs
 
-    def _get_task_actors(self) -> List[sapien.Actor]:
+    def _get_task_actors(self) -> List[sapien.Entity]:
         """Get task-relevant actors (for privileged states)."""
         return []
 
-    def _get_task_articulations(self) -> List[Tuple[sapien.Articulation, int]]:
+    def _get_task_articulations(self) -> List[Tuple[physx.PhysxArticulation, int]]:
         """Get task-relevant articulations (for privileged states).
         Each element is (art_obj, max_dof).
         """

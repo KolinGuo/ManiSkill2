@@ -1,6 +1,6 @@
 import os
 import numpy as np
-import sapien.core as sapien
+import sapien
 from mani_skill2.envs.mpm.base_env import MPMBaseEnv
 from mani_skill2 import PACKAGE_ASSET_DIR
 from mani_skill2.agents.robots.panda import Panda
@@ -9,11 +9,7 @@ from mani_skill2.utils.registration import register_env
 from mani_skill2.sensors.camera import CameraConfig
 
 from transforms3d.euler import euler2quat
-from mani_skill2.utils.sapien_utils import get_entity_by_name
-from mani_skill2.utils.sapien_utils import (
-    get_entity_by_name,
-    vectorize_pose,
-)
+from mani_skill2.utils.sapien_utils import vectorize_pose
 
 from collections import OrderedDict
 
@@ -123,9 +119,9 @@ class FillEnv(MPMBaseEnv):
             config=self._agent_cfg,
         )
 
-        self.grasp_site: sapien.Link = get_entity_by_name(
-            self.agent.robot.get_links(), "bucket"
-        )
+        self.grasp_site: sapien.Entity = self.agent.robot.find_link_by_name(
+            "bucket"
+        ).entity
 
     def _initialize_agent(self):
         qpos = np.array([-0.188, 0.234, 0.201, -2.114, -0.088, 1.35, 1.571])
@@ -147,7 +143,9 @@ class FillEnv(MPMBaseEnv):
 
         b = self._scene.create_actor_builder()
         b.add_visual_from_file(beaker_file, scale=[0.04] * 3)
-        b.add_collision_from_file(beaker_file, scale=[0.04] * 3, density=300)
+        b.add_multiple_convex_collisions_from_file(
+            beaker_file, scale=[0.04] * 3, density=300, decomposition="none",
+        )
         self.target_beaker = b.build_kinematic("target_beaker")
 
     def _initialize_actors(self):
@@ -174,7 +172,7 @@ class FillEnv(MPMBaseEnv):
 
     def _get_obs_extra(self) -> OrderedDict:
         return OrderedDict(
-            tcp_pose=vectorize_pose(self.grasp_site.get_pose()),
+            tcp_pose=vectorize_pose(self.grasp_site.pose),
             target=np.array([self.beaker_x, self.beaker_y]),
         )
 
@@ -207,7 +205,7 @@ class FillEnv(MPMBaseEnv):
         return dict(success=False)
 
     def _bucket_keypoints(self):
-        gripper_mat = self.grasp_site.get_pose().to_transformation_matrix()
+        gripper_mat = self.grasp_site.pose.to_transformation_matrix()
         bucket_base_mat = np.array(
             [[1, 0, 0, 0], [0, 1, 0, -0.01], [0, 0, 1, 0.045], [0, 0, 0, 1]]
         )
@@ -223,19 +221,19 @@ class FillEnv(MPMBaseEnv):
         bucket_brmat = np.array(
             [[1, 0, 0, 0.03], [0, 1, 0, 0.02], [0, 0, 1, 0.08], [0, 0, 0, 1]]
         )
-        bucket_base_pos = sapien.Pose.from_transformation_matrix(
+        bucket_base_pos = sapien.Pose(
             gripper_mat @ bucket_base_mat
         ).p
-        bucket_tlpos = sapien.Pose.from_transformation_matrix(
+        bucket_tlpos = sapien.Pose(
             gripper_mat @ bucket_tlmat
         ).p
-        bucket_trpos = sapien.Pose.from_transformation_matrix(
+        bucket_trpos = sapien.Pose(
             gripper_mat @ bucket_trmat
         ).p
-        bucket_blpos = sapien.Pose.from_transformation_matrix(
+        bucket_blpos = sapien.Pose(
             gripper_mat @ bucket_blmat
         ).p
-        bucket_brpos = sapien.Pose.from_transformation_matrix(
+        bucket_brpos = sapien.Pose(
             gripper_mat @ bucket_brmat
         ).p
         return (
@@ -253,12 +251,12 @@ class FillEnv(MPMBaseEnv):
                 return {"reward": 2.5}
             return 2.5
         # bucket frame
-        gripper_mat = self.grasp_site.get_pose().to_transformation_matrix()
+        gripper_mat = self.grasp_site.pose.to_transformation_matrix()
         gripper_bucket_mat = np.array(
             [[1, 0, 0, 0], [0, 1, 0, 0.02], [0, 0, 1, 0.08], [0, 0, 0, 1]]
         )
         bucket_mat = gripper_mat @ gripper_bucket_mat
-        bucket_pos = sapien.Pose.from_transformation_matrix(bucket_mat).p
+        bucket_pos = sapien.Pose(bucket_mat).p
 
         beaker_pos = np.array([self.beaker_x, self.beaker_y])
         dist = np.linalg.norm(bucket_pos[:2] - beaker_pos)

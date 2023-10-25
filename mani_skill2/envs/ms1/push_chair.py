@@ -1,7 +1,8 @@
 import numpy as np
-import sapien.core as sapien
+import sapien
+import sapien.physx as physx
+from sapien import Pose
 import trimesh
-from sapien.core import Pose
 from scipy.spatial import distance as sdist
 from transforms3d.euler import euler2quat, quat2euler
 
@@ -52,7 +53,7 @@ class PushChairEnv(MS1BaseEnv):
             self._set_chair_links_mesh()
 
     @staticmethod
-    def _check_link_types(link: sapien.LinkBase):
+    def _check_link_types(link: physx.PhysxArticulationLinkComponent):
         link_types = []
         for visual_body in link.get_visual_bodies():
             name = visual_body.name
@@ -88,7 +89,7 @@ class PushChairEnv(MS1BaseEnv):
             static_friction=1, dynamic_friction=1, restitution=0
         )
         for link in self.wheel_links:
-            for s in link.get_collision_shapes():
+            for s in link.collision_shapes:
                 s.set_physical_material(wheel_material)
 
     def _ignore_collision(self):
@@ -97,7 +98,7 @@ class PushChairEnv(MS1BaseEnv):
             return
 
         for link in [self.seat_link, self.support_link]:
-            shapes = link.get_collision_shapes()
+            shapes = link.collision_shapes
             for s in shapes:
                 g0, g1, g2, g3 = s.get_collision_groups()
                 s.set_collision_groups(g0, g1, g2 | 1 << 31, g3)
@@ -217,12 +218,12 @@ class PushChairEnv(MS1BaseEnv):
             if parent_link is not None and "helper" in parent_link.name:
                 # assert joint.type == "revolute", (self.model_id, joint.type)
                 joint.set_friction(self._episode_rng.uniform(0.05, 0.15))
-                joint.set_drive_property(
+                joint.set_drive_properties(
                     stiffness=0, damping=self._episode_rng.uniform(5, 15)
                 )
             else:
                 joint.set_friction(self._episode_rng.uniform(0.0, 0.1))
-                joint.set_drive_property(
+                joint.set_drive_properties(
                     stiffness=0, damping=self._episode_rng.uniform(0, 0.5)
                 )
 
@@ -268,7 +269,7 @@ class PushChairEnv(MS1BaseEnv):
         """Get the point cloud of the chair given its current joint positions."""
         links_pcd = []
         for name, info in self.links_info.items():
-            link: sapien.LinkBase = info[0]
+            link: physx.PhysxArticulationLinkComponent = info[0]
             pcd: np.ndarray = info[2]
             T = link.pose.to_transformation_matrix()
             pcd = transform_points(T, pcd)

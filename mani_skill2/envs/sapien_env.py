@@ -4,7 +4,7 @@ from typing import Dict, Optional, Sequence, Union
 
 import gym
 import numpy as np
-import sapien.core as sapien
+import sapien
 from sapien.utils import Viewer
 
 from mani_skill2 import ASSET_DIR, logger
@@ -22,9 +22,11 @@ from mani_skill2.utils.sapien_utils import (
     get_articulation_state,
     set_actor_state,
     set_articulation_state,
+    get_rigid_dynamic_component,
+    get_obj_by_type,
 )
 from mani_skill2.utils.trimesh_utils import (
-    get_actor_meshes,
+    get_component_meshes,
     get_articulation_meshes,
     merge_meshes,
 )
@@ -48,8 +50,6 @@ class BaseEnv(gym.Env):
             - device (str): GPU device for renderer, e.g., 'cuda:x'.
         shader_dir (str): shader directory. Defaults to "ibl".
             "ibl" and "rt" are built-in options with SAPIEN. Other options are user-defined.
-        render_config (dict): kwargs to configure the renderer. Only for `SapienRenderer`.
-            See `sapien.RenderConfig` for more details.
         enable_shadow (bool): whether to enable shadow for lights. Defaults to False.
         camera_cfgs (dict): configurations of cameras. See notes for more details.
         render_camera_cfgs (dict): configurations of rendering cameras. Similar usage as @camera_cfgs.
@@ -82,8 +82,7 @@ class BaseEnv(gym.Env):
         control_freq: int = 20,
         renderer: str = "sapien",
         renderer_kwargs: dict = None,
-        shader_dir: str = "ibl",
-        render_config: dict = None,
+        shader_dir: str = "default",
         enable_shadow: bool = False,
         camera_cfgs: dict = None,
         render_camera_cfgs: dict = None,
@@ -92,7 +91,7 @@ class BaseEnv(gym.Env):
         # Create SAPIEN engine
         self._engine = sapien.Engine()
         # TODO(jigu): Change to `warning` after lighting in VecEnv is fixed.
-        self._engine.set_log_level(os.getenv("MS2_SIM_LOG_LEVEL", "error"))
+        sapien.set_log_level(os.getenv("MS2_SIM_LOG_LEVEL", "error"))
 
         # Create SAPIEN renderer
         self._renderer_type = renderer
@@ -101,28 +100,22 @@ class BaseEnv(gym.Env):
         if self._renderer_type == "sapien":
             self._renderer = sapien.SapienRenderer(**renderer_kwargs)
             if shader_dir == "ibl":
-                _render_config = dict(camera_shader_dir="ibl", viewer_shader_dir="ibl")
+                sapien.render.set_camera_shader_dir("ibl")
+                sapien.render.set_viewer_shader_dir("ibl")
             elif shader_dir == "rt":
-                _render_config = dict(
-                    camera_shader_dir="rt",
-                    viewer_shader_dir="rt",
-                    rt_samples_per_pixel=32,
-                    rt_max_path_depth=8,
-                    rt_use_denoiser=True,
-                )
+                sapien.render.set_camera_shader_dir("rt")
+                sapien.render.set_viewer_shader_dir("rt")
+                sapien.render.set_ray_tracing_samples_per_pixel(32)
+                sapien.render.set_ray_tracing_path_depth(16)
+                sapien.render.set_ray_tracing_denoiser("optix")
             else:
-                _render_config = dict(
-                    camera_shader_dir=shader_dir, viewer_shader_dir=shader_dir
-                )
-            if render_config is None:
-                render_config = {}
-            _render_config.update(render_config)
-            for k, v in _render_config.items():
-                setattr(sapien.render_config, k, v)
-            self._renderer.set_log_level(os.getenv("MS2_RENDERER_LOG_LEVEL", "warn"))
-        elif self._renderer_type == "client":
-            self._renderer = sapien.RenderClient(**renderer_kwargs)
-            # TODO(jigu): add `set_log_level` for RenderClient?
+                sapien.render.set_camera_shader_dir(shader_dir)
+                sapien.render.set_viewer_shader_dir(shader_dir)
+            sapien.render.set_log_level(os.getenv("MS2_RENDERER_LOG_LEVEL", "warn"))
+        # TODO: sapien3: RenderClient
+        # elif self._renderer_type == "client":
+        #     self._renderer = sapien.RenderClient(**renderer_kwargs)
+        #     # TODO(jigu): add `set_log_level` for RenderClient?
         else:
             raise NotImplementedError(self._renderer_type)
 
@@ -349,7 +342,11 @@ class BaseEnv(gym.Env):
     # -------------------------------------------------------------------------- #
     def reconfigure(self):
         """Reconfigure the simulation scene instance.
-        This function should clear the previous scene, and create a new one.
+        This function clears the previous scene and creates a new one.
+
+        Note this function is not always called when an environment is reset, and
+        should only be used if any agents, assets, cameras, lighting need to change
+        to save compute time.
         """
         self._clear()
 
@@ -363,7 +360,7 @@ class BaseEnv(gym.Env):
         if self._viewer is not None:
             self._setup_viewer()
 
-        # Cache actors and articulations
+        # Cache entities and articulations
         self._actors = self.get_actors()
         self._articulations = self.get_articulations()
 
@@ -385,15 +382,19 @@ class BaseEnv(gym.Env):
         )
 
     def _load_actors(self):
+        """Loads all actors into the scene. Called by `self.reconfigure`"""
         pass
 
     def _load_articulations(self):
+        """Loads all articulations into the scene. Called by `self.reconfigure`"""
         pass
 
     def _load_agent(self):
+        """Loads all agents into the scene. Called by `self.reconfigure`"""
         pass
 
     def _setup_cameras(self):
+        """Setup cameras in the scene. Called by `self.reconfigure`"""
         self._cameras = OrderedDict()
         for uid, camera_cfg in self._camera_cfgs.items():
             if uid in self._agent_camera_cfgs:
@@ -420,6 +421,7 @@ class BaseEnv(gym.Env):
                 )
 
     def _setup_lighting(self):
+        """Setup lighting in the scene. Called by `self.reconfigure`"""
         if self.bg_name is not None:
             return
 
@@ -427,11 +429,12 @@ class BaseEnv(gym.Env):
         self._scene.set_ambient_light([0.3, 0.3, 0.3])
         # Only the first of directional lights can have shadow
         self._scene.add_directional_light(
-            [1, 1, -1], [1, 1, 1], shadow=shadow, scale=5, shadow_map_size=2048
+            [1, 1, -1], [1, 1, 1], shadow=shadow, shadow_scale=5, shadow_map_size=2048
         )
         self._scene.add_directional_light([0, 0, -1], [1, 1, 1])
 
     def _load_background(self):
+        """Loads a background for the scene. Called by `self.reconfigure`"""
         if self.bg_name is None:
             return
 
@@ -489,7 +492,7 @@ class BaseEnv(gym.Env):
         self._episode_rng = np.random.RandomState(self._episode_seed)
 
     def initialize_episode(self):
-        """Initialize the episode, e.g., poses of actors and articulations, and robot configuration.
+        """Initialize the episode, e.g., poses of entities and articulations, and robot configuration.
         No new assets are created. Task-relevant information can be initialized here, like goals.
         """
         self._initialize_actors()
@@ -498,28 +501,30 @@ class BaseEnv(gym.Env):
         self._initialize_task()
 
     def _initialize_actors(self):
-        """Initialize the poses of actors."""
+        """Initialize the poses of actors. Called by `self.initialize_episode`"""
         pass
 
     def _initialize_articulations(self):
-        """Initialize the (joint) poses of articulations."""
+        """Initialize the (joint) poses of articulations. Called by `self.initialize_episode`"""
         pass
 
     def _initialize_agent(self):
-        """Initialize the (joint) poses of agent(robot)."""
+        """Initialize the (joint) poses of agent(robot). Called by `self.initialize_episode`"""
         pass
 
     def _initialize_task(self):
-        """Initialize task-relevant information, like goals."""
+        """Initialize task-relevant information, like goals. Called by `self.initialize_episode`"""
         pass
 
     def _clear_sim_state(self):
         """Clear simulation state (velocities)"""
         for actor in self._scene.get_all_actors():
-            if actor.type != "static":
+            component = get_rigid_dynamic_component(actor)
+            if component is None:
                 # TODO(fxiang): kinematic actor may need another way.
-                actor.set_velocity([0, 0, 0])
-                actor.set_angular_velocity([0, 0, 0])
+                continue
+            component.set_linear_velocity([0, 0, 0])
+            component.set_angular_velocity([0, 0, 0])
         for articulation in self._scene.get_all_articulations():
             articulation.set_qvel(np.zeros(articulation.dof))
             articulation.set_root_velocity([0, 0, 0])
@@ -589,14 +594,14 @@ class BaseEnv(gym.Env):
         scene_config.solver_iterations = 25
         # NOTE(fanbo): solver_velocity_iterations=0 is undefined in PhysX
         scene_config.solver_velocity_iterations = 1
-        if self._renderer_type == "client":
-            scene_config.disable_collision_visual = True
+        # TODO: sapien3
+        # if self._renderer_type == "client":
+        #     scene_config.disable_collision_visual = True
         return scene_config
 
     def _setup_scene(self, scene_config: Optional[sapien.SceneConfig] = None):
         """Setup the simulation scene instance.
-        The function should be called in reset().
-        """
+        The function should be called in reset(). Called by `self.reconfigure`"""
         if scene_config is None:
             scene_config = self._get_default_scene_config()
         self._scene = self._engine.create_scene(scene_config)
@@ -605,6 +610,7 @@ class BaseEnv(gym.Env):
     def _clear(self):
         """Clear the simulation scene instance and other buffers.
         The function can be called in reset() before a new scene is created.
+        Called by `self.reconfigure` and when the environment is closed/deleted
         """
         self._close_viewer()
         self.agent = None
@@ -665,17 +671,26 @@ class BaseEnv(gym.Env):
     # -------------------------------------------------------------------------- #
     # Visualization
     # -------------------------------------------------------------------------- #
-    _viewer: Viewer
+    @property
+    def viewer(self) -> Viewer:
+        return self._viewer
 
     def _setup_viewer(self):
         """Setup the interactive viewer.
-        The function should be called in reconfigure().
-        To adjust the camera, override this function.
+
+        The function should be called after a new scene is configured.
+        In subclasses, this function can be overridden to set viewer cameras.
+
+        Called by `self.reconfigure`
         """
-        # CAUTION: call `set_scene` after assets are loaded.
+        # CAUTION: `set_scene` should be called after assets are loaded.
         self._viewer.set_scene(self._scene)
-        self._viewer.toggle_axes(False)
-        self._viewer.toggle_camera_lines(False)
+        # TODO (stao): @fxiang is this the best way to get the toggles for axes and camera lines?
+        control_window = get_obj_by_type(
+            self._viewer.plugins, sapien.utils.viewer.control_window.ControlWindow
+        )
+        control_window.show_joint_axes = False
+        control_window.show_camera_linesets = False
 
     def render(self, mode="human", **kwargs):
         self.update_render()
@@ -707,7 +722,6 @@ class BaseEnv(gym.Env):
             self.update_render()
             self.take_picture()
             cameras_images = self.get_images()
-
             for camera_images in cameras_images.values():
                 images.extend(observations_to_images(camera_images))
             return tile_images(images)
@@ -729,7 +743,7 @@ class BaseEnv(gym.Env):
                 meshes.append(articulation_mesh)
 
         for actor in self._scene.get_all_actors():
-            actor_mesh = merge_meshes(get_actor_meshes(actor))
+            actor_mesh = merge_meshes(get_component_meshes(actor))
             if actor_mesh:
                 meshes.append(
                     actor_mesh.apply_transform(

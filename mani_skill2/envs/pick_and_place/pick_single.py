@@ -3,8 +3,9 @@ from pathlib import Path
 from typing import Dict, List
 
 import numpy as np
-import sapien.core as sapien
-from sapien.core import Pose
+import sapien
+import sapien.physx as physx
+from sapien import Pose
 from transforms3d.euler import euler2quat
 from transforms3d.quaternions import axangle2quat, qmult
 
@@ -12,7 +13,7 @@ from mani_skill2 import ASSET_DIR, format_path
 from mani_skill2.utils.common import random_choice
 from mani_skill2.utils.io_utils import load_json
 from mani_skill2.utils.registration import register_env
-from mani_skill2.utils.sapien_utils import set_actor_visibility, vectorize_pose
+from mani_skill2.utils.sapien_utils import set_entity_visibility, vectorize_pose
 
 from .base_env import StationaryManipulationEnv
 
@@ -21,7 +22,7 @@ class PickSingleEnv(StationaryManipulationEnv):
     DEFAULT_ASSET_ROOT: str
     DEFAULT_MODEL_JSON: str
 
-    obj: sapien.Actor  # target object
+    obj: sapien.Entity  # target object
 
     def __init__(
         self,
@@ -75,7 +76,9 @@ class PickSingleEnv(StationaryManipulationEnv):
     def _load_actors(self):
         self._add_ground(render=self.bg_name is None)
         self._load_model()
-        self.obj.set_damping(0.1, 0.1)
+        obj_comp = self.obj.find_component_by_type(physx.PhysxRigidDynamicComponent)
+        obj_comp.set_linear_damping(0.1)
+        obj_comp.set_angular_damping(0.1)
         self.goal_site = self._build_sphere_site(self.goal_thresh)
 
     def _load_model(self):
@@ -151,27 +154,30 @@ class PickSingleEnv(StationaryManipulationEnv):
         self.agent.robot.set_pose(Pose([-10, 0, 0]))
 
         # Lock rotation around x and y
-        self.obj.lock_motion(0, 0, 0, 1, 1, 0)
+        obj_comp = self.obj.find_component_by_type(physx.PhysxRigidDynamicComponent)
+        obj_comp.set_locked_motion_axes([0, 0, 0, 1, 1, 0])
         self._settle(0.5)
 
         # Unlock motion
-        self.obj.lock_motion(0, 0, 0, 0, 0, 0)
+        obj_comp.set_locked_motion_axes([0, 0, 0, 0, 0, 0])
         # NOTE(jigu): Explicit set pose to ensure the actor does not sleep
         self.obj.set_pose(self.obj.pose)
-        self.obj.set_velocity(np.zeros(3))
-        self.obj.set_angular_velocity(np.zeros(3))
+        obj_comp.set_linear_velocity(np.zeros(3))
+        obj_comp.set_angular_velocity(np.zeros(3))
         self._settle(0.5)
 
         # Some objects need longer time to settle
-        lin_vel = np.linalg.norm(self.obj.velocity)
-        ang_vel = np.linalg.norm(self.obj.angular_velocity)
+        lin_vel = np.linalg.norm(obj_comp.linear_velocity)
+        ang_vel = np.linalg.norm(obj_comp.angular_velocity)
         if lin_vel > 1e-3 or ang_vel > 1e-2:
             self._settle(0.5)
 
     @property
     def obj_pose(self):
         """Get the center of mass (COM) pose."""
-        return self.obj.pose.transform(self.obj.cmass_local_pose)
+        return self.obj.pose * self.obj.find_component_by_type(
+            physx.PhysxRigidDynamicComponent
+        ).cmass_local_pose
 
     def _initialize_task(self, max_trials=100):
         REGION = [[-0.15, -0.25], [0.15, 0.25]]
@@ -269,9 +275,7 @@ class PickSingleEnv(StationaryManipulationEnv):
         reward = 0.0
         # hard code gripper info
         finger_length = 0.025
-        gripper_width = (
-            self.agent.robot.get_qlimits()[-1, 1] * 2
-        )  # NOTE: hard-coded with panda
+        gripper_width = self.agent.robot.qlimit[-1, 1] * 2  # NOTE: hard-coded with panda
 
         if info["success"]:
             reward = 10.0
@@ -376,9 +380,9 @@ class PickSingleEnv(StationaryManipulationEnv):
 
     def render(self, mode="human"):
         if mode in ["human", "rgb_array"]:
-            set_actor_visibility(self.goal_site, 0.5)
+            set_entity_visibility(self.goal_site, 0.5)
             ret = super().render(mode=mode)
-            set_actor_visibility(self.goal_site, 0.0)
+            set_entity_visibility(self.goal_site, 0.0)
         else:
             ret = super().render(mode=mode)
         return ret
@@ -399,19 +403,20 @@ def build_actor_ycb(
     model_id: str,
     scene: sapien.Scene,
     scale: float = 1.0,
-    physical_material: sapien.PhysicalMaterial = None,
+    physical_material: sapien.PhysicalMaterialRecord = None,
     density=1000,
     root_dir=ASSET_DIR / "mani_skill2_ycb",
 ):
     builder = scene.create_actor_builder()
     model_dir = Path(root_dir) / "models" / model_id
 
-    collision_file = str(model_dir / "collision.obj")
-    builder.add_multiple_collisions_from_file(
+    collision_file = str(model_dir / "collision.coacd.ply")
+    builder.add_multiple_convex_collisions_from_file(
         filename=collision_file,
         scale=[scale] * 3,
         material=physical_material,
         density=density,
+        decomposition="none",
     )
 
     visual_file = str(model_dir / "textured.obj")
@@ -437,11 +442,11 @@ class PickSingleYCBEnv(PickSingleEnv):
                     "`python -m mani_skill2.utils.download_asset ycb`."
                 )
 
-            collision_file = model_dir / "collision.obj"
+            collision_file = model_dir / "collision.coacd.ply"
             if not collision_file.exists():
                 raise FileNotFoundError(
-                    "convex.obj has been renamed to collision.obj. "
-                    "Please re-download YCB models."
+                    "collision.obj has been renamed to collision.coacd.ply. "
+                    "Please re-generate using coacd."
                 )
 
     def _load_model(self):
@@ -473,9 +478,9 @@ def build_actor_egad(
     model_id: str,
     scene: sapien.Scene,
     scale: float = 1.0,
-    physical_material: sapien.PhysicalMaterial = None,
+    physical_material: sapien.PhysicalMaterialRecord = None,
     density=100,
-    render_material: sapien.RenderMaterial = None,
+    render_material: sapien.VisualMaterialRecord = None,
     root_dir=ASSET_DIR / "mani_skill2_egad",
 ):
     builder = scene.create_actor_builder()
@@ -483,11 +488,12 @@ def build_actor_egad(
     split = "train" if "_" in model_id else "eval"
 
     collision_file = Path(root_dir) / f"egad_{split}_set_coacd" / f"{model_id}.obj"
-    builder.add_multiple_collisions_from_file(
+    builder.add_multiple_convex_collisions_from_file(
         filename=str(collision_file),
         scale=[scale] * 3,
         material=physical_material,
         density=density,
+        decomposition="none",
     )
 
     visual_file = Path(root_dir) / f"egad_{split}_set" / f"{model_id}.obj"
@@ -546,7 +552,8 @@ class PickSingleEGADEnv(PickSingleEnv):
         super()._initialize_actors()
 
         # Some objects need longer time to settle
-        lin_vel = np.linalg.norm(self.obj.velocity)
-        ang_vel = np.linalg.norm(self.obj.angular_velocity)
+        obj_comp = self.obj.find_component_by_type(physx.PhysxRigidDynamicComponent)
+        lin_vel = np.linalg.norm(obj_comp.linear_velocity)
+        ang_vel = np.linalg.norm(obj_comp.angular_velocity)
         if lin_vel > 1e-3 or ang_vel > 1e-2:
             self._settle(0.5)

@@ -2,7 +2,8 @@ from collections import OrderedDict
 from typing import List, Tuple
 
 import numpy as np
-import sapien.core as sapien
+import sapien
+import sapien.physx as physx
 from transforms3d.euler import euler2quat
 
 from mani_skill2.utils.registration import register_env
@@ -126,14 +127,12 @@ class StackCubeEnv(StationaryManipulationEnv):
             "is_cubaA_grasped": is_cubaA_grasped,
             "is_cubeA_on_cubeB": is_cubeA_on_cubeB,
             "is_cubeA_static": is_cubeA_static,
-            # "cubeA_vel": np.linalg.norm(self.cubeA.velocity),
-            # "cubeA_ang_vel": np.linalg.norm(self.cubeA.angular_velocity),
             "success": success,
         }
 
     def compute_dense_reward(self, info, **kwargs):
         gripper_width = (
-            self.agent.robot.get_qlimits()[-1, 1] * 2
+            self.agent.robot.qlimit[-1, 1] * 2
         )  # NOTE: hard-coded with panda
         reward = 0.0
 
@@ -157,9 +156,11 @@ class StackCubeEnv(StationaryManipulationEnv):
             )
             reward += 1 - grasp_rot_loss
 
-            cubeB_vel_penalty = np.linalg.norm(self.cubeB.velocity) + np.linalg.norm(
-                self.cubeB.angular_velocity
+            cubeB_comp = self.cubeB.find_component_by_type(
+                physx.PhysxRigidDynamicComponent
             )
+            cubeB_vel_penalty = np.linalg.norm(cubeB_comp.linear_velocity) \
+                + np.linalg.norm(cubeB_comp.angular_velocity)
             reward -= cubeB_vel_penalty
 
             # reaching object reward

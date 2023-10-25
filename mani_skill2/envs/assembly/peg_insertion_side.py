@@ -1,8 +1,8 @@
 from collections import OrderedDict
 
 import numpy as np
-import sapien.core as sapien
-from sapien.core import Pose
+import sapien
+from sapien import Pose
 from transforms3d.euler import euler2quat
 
 from mani_skill2.utils.registration import register_env
@@ -127,15 +127,15 @@ class PegInsertionSideEnv(StationaryManipulationEnv):
 
     @property
     def peg_head_pos(self):
-        return self.peg.pose.transform(self.peg_head_offset).p
+        return (self.peg.pose * self.peg_head_offset).p
 
     @property
     def peg_head_pose(self):
-        return self.peg.pose.transform(self.peg_head_offset)
+        return self.peg.pose * self.peg_head_offset
 
     @property
     def box_hole_pose(self):
-        return self.box.pose.transform(self.box_hole_offset)
+        return self.box.pose * self.box_hole_offset
 
     def _initialize_task(self):
         self.goal_pos = self.box_hole_pose.p  # goal of peg head inside the hole
@@ -159,7 +159,7 @@ class PegInsertionSideEnv(StationaryManipulationEnv):
 
     def has_peg_inserted(self):
         # Only head position is used in fact
-        peg_head_pose = self.peg.pose.transform(self.peg_head_offset)
+        peg_head_pose = self.peg.pose * self.peg_head_offset
         box_hole_pose = self.box_hole_pose
         peg_head_pos_at_hole = (box_hole_pose.inv() * peg_head_pose).p
         # x-axis is hole direction
@@ -202,7 +202,7 @@ class PegInsertionSideEnv(StationaryManipulationEnv):
         offset = sapien.Pose(
             [-0.06, 0, 0]
         )  # account for panda gripper width with a bit more leeway
-        tgt_gripper_pose = tgt_gripper_pose.transform(offset)
+        tgt_gripper_pose = tgt_gripper_pose * offset
         if rotated_properly:
             # reaching reward
             gripper_to_peg_dist = np.linalg.norm(gripper_pos - tgt_gripper_pose.p)

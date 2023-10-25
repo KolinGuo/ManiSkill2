@@ -1,7 +1,12 @@
-from copy import deepcopy
 import numpy as np
 
-from mani_skill2.agents.controllers import *
+from mani_skill2.agents.controllers import (
+    deepcopy_dict,
+    PDJointPosControllerConfig,
+    PDEEPosControllerConfig,
+    PDEEPoseControllerConfig,
+    PDJointPosMimicControllerConfig
+)
 from mani_skill2.sensors.camera import CameraConfig
 
 
@@ -119,7 +124,7 @@ class XArmDefaultConfig:
             fov=1.57,
             near=0.01,
             far=10,
-            actor_uid="xarm_gripper_base_link",
+            entity_uid="xarm_gripper_base_link",
         )
 
 
@@ -163,7 +168,7 @@ class XArm7D435DefaultConfig(XArmDefaultConfig):
             fov=np.deg2rad(43.5),
             near=0.01,
             far=10,
-            actor_uid="camera_color_frame",
+            entity_uid="camera_color_frame",
         )
 
 
@@ -205,5 +210,5 @@ class FloatingXArmD435DefaultConfig(XArmDefaultConfig):
             fov=np.deg2rad(43.5),
             near=0.01,
             far=10,
-            actor_uid="camera_color_frame",
+            entity_uid="camera_color_frame",
         )

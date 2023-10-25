@@ -2,7 +2,16 @@ from copy import deepcopy
 
 import numpy as np
 
-from mani_skill2.agents.controllers import *
+from mani_skill2.agents.controllers import (
+    deepcopy_dict,
+    PDBaseVelControllerConfig,
+    PDJointVelControllerConfig,
+    PDJointPosControllerConfig,
+    PDEEPosControllerConfig,
+    PDEEPoseControllerConfig,
+    PDJointPosVelControllerConfig,
+    PDJointPosMimicControllerConfig
+)
 from mani_skill2.sensors.camera import CameraConfig
 
 
@@ -240,7 +249,7 @@ class MobilePandaDualArmDefaultConfig:
                 near=0.1,
                 far=10,
                 fov=np.pi / 3,
-                actor_uid="mobile_base",
+                entity_uid="mobile_base",
             )
             cameras.append(camera)
         return cameras
