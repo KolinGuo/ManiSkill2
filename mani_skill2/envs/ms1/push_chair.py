@@ -218,12 +218,12 @@ class PushChairEnv(MS1BaseEnv):
             if parent_link is not None and "helper" in parent_link.name:
                 # assert joint.type == "revolute", (self.model_id, joint.type)
                 joint.set_friction(self._episode_rng.uniform(0.05, 0.15))
-                joint.set_drive_properties(
+                joint.set_drive_property(
                     stiffness=0, damping=self._episode_rng.uniform(5, 15)
                 )
             else:
                 joint.set_friction(self._episode_rng.uniform(0.0, 0.1))
-                joint.set_drive_properties(
+                joint.set_drive_property(
                     stiffness=0, damping=self._episode_rng.uniform(0, 0.5)
                 )
 

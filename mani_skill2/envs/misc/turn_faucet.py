@@ -190,7 +190,7 @@ class TurnFaucetEnv(TurnFaucetBaseEnv):
         # Set friction and damping for all joints
         for joint in self.faucet.get_active_joints():
             joint.set_friction(1.0)
-            joint.set_drive_properties(0.0, 10.0)
+            joint.set_drive_property(0.0, 10.0)
 
         self._set_switch_links()
 
@@ -238,7 +238,7 @@ class TurnFaucetEnv(TurnFaucetBaseEnv):
             # hardcode
             joint = all_joints[link.index]
             joint.set_friction(0.1)
-            joint.set_drive_properties(0.0, 2.0)
+            joint.set_drive_property(0.0, 2.0)
             self.switch_joints.append(joint)
 
     def _load_agent(self):

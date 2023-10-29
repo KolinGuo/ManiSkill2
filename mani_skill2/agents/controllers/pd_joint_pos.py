@@ -32,7 +32,7 @@ class PDJointPosController(BaseController):
         friction = np.broadcast_to(self.config.friction, n)
 
         for i, joint in enumerate(self.joints):
-            joint.set_drive_properties(
+            joint.set_drive_property(
                 stiffness[i], damping[i], force_limit=force_limit[i]
             )
             joint.set_friction(friction[i])

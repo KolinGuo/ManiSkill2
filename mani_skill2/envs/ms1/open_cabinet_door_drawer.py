@@ -233,7 +233,7 @@ class OpenCabinetEnv(MS1BaseEnv):
     def _set_joint_physical_parameters(self):
         for joint in self.cabinet.get_active_joints():
             joint.set_friction(self._episode_rng.uniform(0.05, 0.15))
-            joint.set_drive_properties(
+            joint.set_drive_property(
                 stiffness=0, damping=self._episode_rng.uniform(5, 20)
             )
 
