@@ -5,6 +5,7 @@ from typing import Dict, Optional, Sequence, Union
 import gym
 import numpy as np
 import sapien
+import sapien.physx as physx
 from sapien.utils import Viewer
 
 from mani_skill2 import ASSET_DIR, logger
@@ -586,13 +587,10 @@ class BaseEnv(gym.Env):
     # -------------------------------------------------------------------------- #
     def _get_default_scene_config(self):
         scene_config = sapien.SceneConfig()
-        scene_config.default_dynamic_friction = 1.0
-        scene_config.default_static_friction = 1.0
-        scene_config.default_restitution = 0.0
+        physx.set_default_material(static_friction=0.3, dynamic_friction=0.3,
+                                   restitution=0.0)
         scene_config.contact_offset = 0.02
-        scene_config.enable_pcm = False
         scene_config.solver_iterations = 25
-        # NOTE(fanbo): solver_velocity_iterations=0 is undefined in PhysX
         scene_config.solver_velocity_iterations = 1
         # TODO: sapien3
         # if self._renderer_type == "client":

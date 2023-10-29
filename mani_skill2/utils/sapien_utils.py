@@ -1,4 +1,3 @@
-from contextlib import contextmanager
 from copy import deepcopy
 from typing import Dict, List, Optional, Tuple, TypeVar
 
@@ -36,31 +35,6 @@ def hide_entity(entity: sapien.Entity):
 
 def show_entity(entity: sapien.Entity):
     get_render_body_component(entity).enable()
-
-
-@contextmanager
-def set_default_physical_material(
-    material: sapien.PhysicalMaterialRecord, scene: sapien.Scene
-):
-    """Set default physical material within the context.
-
-    Args:
-        material (sapien.PhysicalMaterialRecord): physical material to use as default.
-        scene (sapien.Scene): scene instance.
-
-    Yields:
-        sapien.PhysicalMaterialRecord: original default physical material.
-
-    Example:
-        with set_default_physical_material(material, scene):
-            ...
-    """
-    old_material = scene.default_physical_material
-    scene.default_physical_material = material
-    try:
-        yield old_material
-    finally:
-        scene.default_physical_material = old_material
 
 
 T = TypeVar('T')
@@ -188,7 +162,7 @@ def apply_urdf_config(loader: sapien.wrapper.urdf_loader.URDFLoader, urdf_config
     if "link" in urdf_config:
         for name, link_cfg in urdf_config["link"].items():
             if "material" in link_cfg:
-                mat: sapien.PhysicalMaterialRecord = link_cfg["material"]
+                mat: physx.PhysxMaterial = link_cfg["material"]
                 loader.set_link_material(name, mat.static_friction, mat.dynamic_friction, mat.restitution)
             if "patch_radius" in link_cfg:
                 loader.set_link_patch_radius(name, link_cfg["patch_radius"])
@@ -198,7 +172,7 @@ def apply_urdf_config(loader: sapien.wrapper.urdf_loader.URDFLoader, urdf_config
                 loader.set_link_density(name, link_cfg["density"])
             # TODO (stao): throw error if there is a config not used?
     if "material" in urdf_config:
-        mat: sapien.PhysicalMaterialRecord = urdf_config["material"]
+        mat: physx.PhysxMaterial = urdf_config["material"]
         loader.set_material(mat.static_friction, mat.dynamic_friction, mat.restitution)
     if "patch_radius" in urdf_config:
         loader.set_patch_radius(urdf_config["patch_radius"])
@@ -413,7 +387,7 @@ def hex2rgba(h, correction=True):
     return rgba
 
 
-def set_render_material(material: sapien.VisualMaterialRecord, **kwargs):
+def set_render_material(material: sapien.render.RenderMaterial, **kwargs):
     for k, v in kwargs.items():
         if k == "color":
             material.set_base_color(v)

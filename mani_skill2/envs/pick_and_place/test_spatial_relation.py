@@ -260,7 +260,7 @@ class TestCubeSpatial(StationaryManipulationEnv):
 def build_actor_ycb(
     model_id: str, scene: sapien.Scene,
     scale: float = 1.0,
-    physical_material: sapien.PhysicalMaterialRecord = None,
+    physical_material: physx.PhysxMaterial = None,
     density=1000,
     root_dir=ASSET_DIR / "mani_skill2_ycb",
 ):

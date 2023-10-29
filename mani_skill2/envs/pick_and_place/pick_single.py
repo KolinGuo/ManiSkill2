@@ -403,7 +403,7 @@ def build_actor_ycb(
     model_id: str,
     scene: sapien.Scene,
     scale: float = 1.0,
-    physical_material: sapien.PhysicalMaterialRecord = None,
+    physical_material: physx.PhysxMaterial = None,
     density=1000,
     root_dir=ASSET_DIR / "mani_skill2_ycb",
 ):
@@ -478,9 +478,9 @@ def build_actor_egad(
     model_id: str,
     scene: sapien.Scene,
     scale: float = 1.0,
-    physical_material: sapien.PhysicalMaterialRecord = None,
+    physical_material: physx.PhysxMaterial = None,
     density=100,
-    render_material: sapien.VisualMaterialRecord = None,
+    render_material: sapien.render.RenderMaterial = None,
     root_dir=ASSET_DIR / "mani_skill2_egad",
 ):
     builder = scene.create_actor_builder()

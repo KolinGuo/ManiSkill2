@@ -42,7 +42,7 @@ class StationaryManipulationEnv(BaseEnv):
         color=(1, 0, 0),
         name="cube",
         static=False,
-        render_material: sapien.VisualMaterialRecord = None,
+        render_material: sapien.render.RenderMaterial = None,
     ):
         if render_material is None:
             render_material = self._renderer.create_material()
