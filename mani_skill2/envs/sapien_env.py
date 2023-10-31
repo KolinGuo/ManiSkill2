@@ -429,10 +429,12 @@ class BaseEnv(gym.Env):
         shadow = self.enable_shadow
         self._scene.set_ambient_light([0.3, 0.3, 0.3])
         # Only the first of directional lights can have shadow
-        self._scene.add_directional_light(
+        light = self._scene.add_directional_light(
             [1, 1, -1], [1, 1, 1], shadow=shadow, shadow_scale=5, shadow_map_size=2048
         )
-        self._scene.add_directional_light([0, 0, -1], [1, 1, 1])
+        light.entity.name = "angled_light"
+        light = self._scene.add_directional_light([0, 0, -1], [1, 1, 1])
+        light.entity.name = "topdown_light"
 
     def _load_background(self):
         """Loads a background for the scene. Called by `self.reconfigure`"""
@@ -604,6 +606,9 @@ class BaseEnv(gym.Env):
             scene_config = self._get_default_scene_config()
         self._scene = self._engine.create_scene(scene_config)
         self._scene.set_timestep(1.0 / self._sim_freq)
+        # Load scene environment map only
+        arena = self._scene.load_widget_from_package("sapien_demo_arena", "DemoArena")
+        arena.unload(self._scene)
 
     def _clear(self):
         """Clear the simulation scene instance and other buffers.
