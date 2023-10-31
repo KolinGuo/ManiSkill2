@@ -47,7 +47,7 @@ class BaseAgent:
         config: agent configuration
     """
 
-    robot: physx.PhysxArticulation
+    robot: Union[physx.PhysxArticulation, sapien.Widget]
     controllers: Dict[str, BaseController]
 
     def __init__(

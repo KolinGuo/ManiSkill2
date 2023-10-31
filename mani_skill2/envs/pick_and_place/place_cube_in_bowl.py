@@ -12,6 +12,7 @@ from transforms3d.euler import euler2quat
 from transforms3d.quaternions import axangle2quat, qmult
 
 from mani_skill2 import format_path
+from mani_skill2.agents.utils import get_active_joint_indices
 from mani_skill2.utils.common import random_choice
 from mani_skill2.utils.io_utils import load_json
 from mani_skill2.utils.registration import register_env
@@ -658,7 +659,17 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         """Build a grasp pose at cube_pos, keeping gripper orientation.
         Check if ee_pose is feasible and collision free using IK"""
         if self.pmodel is None:
-            self.pmodel = self.agent.robot.create_pinocchio_model()
+            if isinstance(self.agent.robot, sapien.Widget):
+                robot = self.agent.robot.robot
+                self._wrapped_robot = True
+            else:
+                robot = self.agent.robot
+                self._wrapped_robot = False
+            self.pmodel = robot.create_pinocchio_model()
+            joint_indices = get_active_joint_indices(self.agent.robot,
+                                                     self.agent.config.arm_joint_names)
+            self.qmask = np.zeros(robot.dof, dtype=bool)
+            self.qmask[joint_indices] = 1
             self.ee_link_idx = self.tcp.find_component_by_type(
                 physx.PhysxArticulationLinkComponent
             ).index
@@ -669,13 +680,17 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             T_world_robot.inv() * T_we for T_we in T_world_ee_poses
         ]
 
-        cur_robot_qpos = self.agent.robot.get_qpos()
+        cur_robot_qpos = (self.agent.robot.robot.qpos if self._wrapped_robot
+                          else self.agent.robot.qpos)
         for T_robot_ee in T_robot_ee_poses:
             qpos, success, error = self.pmodel.compute_inverse_kinematics(
                 self.ee_link_idx, T_robot_ee,
                 initial_qpos=cur_robot_qpos,
+                active_qmask=self.qmask,
                 max_iterations=100
             )
+            if success:
+                qpos = qpos[:self.agent.robot.dof]
 
             if (
                 success and  # feasible IK
@@ -1398,13 +1413,14 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         from mani_skill2.utils.geometry import angle_distance
 
         pose = actor.get_pose()
+        component = actor.find_component_by_type(physx.PhysxRigidDynamicComponent)
 
         if self._elapsed_steps <= 1:
             flag_v = (max_v is None) or (
-                np.linalg.norm(actor.get_velocity()) <= max_v
+                np.linalg.norm(component.linear_velocity) <= max_v
             )
             flag_ang_v = (max_ang_v is None) or (
-                np.linalg.norm(actor.get_angular_velocity()) <= max_ang_v
+                np.linalg.norm(component.angular_velocity) <= max_ang_v
             )
         else:
             prev_actor_pose = self._prev_actor_poses[actor.name]

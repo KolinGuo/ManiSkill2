@@ -1,8 +1,9 @@
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Dict, List
+from typing import Dict, List, Union
 
 import numpy as np
+import sapien
 import sapien.physx as physx
 from gym import spaces
 
@@ -23,7 +24,7 @@ class BaseController:
     def __init__(
         self,
         config: "ControllerConfig",
-        articulation: physx.PhysxArticulation,
+        articulation: Union[physx.PhysxArticulation, sapien.Widget],
         control_freq: int,
         sim_freq: int = None,
     ):
@@ -71,12 +72,12 @@ class BaseController:
     @property
     def qpos(self):
         """Get current joint positions."""
-        return self.articulation.get_qpos()[self.joint_indices]
+        return self.articulation.qpos[self.joint_indices]
 
     @property
     def qvel(self):
         """Get current joint velocities."""
-        return self.articulation.get_qvel()[self.joint_indices]
+        return self.articulation.qvel[self.joint_indices]
 
     # -------------------------------------------------------------------------- #
     # Interfaces (implemented in subclasses)
@@ -145,12 +146,14 @@ class DictController(BaseController):
         articulation: physx.PhysxArticulation,
         control_freq: int,
         sim_freq: int = None,
-        balance_passive_force=True,
+        balance_gravity=True,
+        balance_coriolis=True,
     ):
         self.configs = configs
         self.articulation = articulation
         self._control_freq = control_freq
-        self.balance_passive_force = balance_passive_force
+        self.balance_gravity = balance_gravity
+        self.balance_coriolis = balance_coriolis
 
         self.controllers: Dict[str, BaseController] = OrderedDict()
         for uid, config in configs.items():
@@ -201,9 +204,10 @@ class DictController(BaseController):
             controller.set_action(action[uid])
 
     def before_simulation_step(self):
-        if self.balance_passive_force:
+        if self.balance_gravity or self.balance_coriolis:
             qf = self.articulation.compute_passive_force(
-                gravity=True, coriolis_and_centrifugal=True
+                gravity=self.balance_gravity,
+                coriolis_and_centrifugal=self.balance_coriolis
             )
         else:
             qf = np.zeros(self.articulation.dof)

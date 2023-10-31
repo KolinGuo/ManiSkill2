@@ -4,6 +4,8 @@ from .pd_joint_pos import (
     PDJointPosControllerConfig,
     PDJointPosMimicController,
     PDJointPosMimicControllerConfig,
+    PDGripperController,
+    PDGripperControllerConfig,
 )
 from .pd_ee_pose import (
     PDEEPosController,

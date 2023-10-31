@@ -33,7 +33,8 @@ class PDJointPosController(BaseController):
 
         for i, joint in enumerate(self.joints):
             joint.set_drive_property(
-                stiffness[i], damping[i], force_limit=force_limit[i]
+                stiffness[i], damping[i], force_limit=force_limit[i],
+                mode="acceleration"
             )
             joint.set_friction(friction[i])
 
@@ -44,7 +45,7 @@ class PDJointPosController(BaseController):
         self._target_qpos = self.qpos
 
     def set_drive_targets(self, targets):
-        qpos = self.articulation.get_qpos()
+        qpos = self.articulation.qpos
         for i, (joint, joint_idx, target) in enumerate(
             zip(self.joints, self.joint_indices, targets)
         ):
@@ -126,3 +127,19 @@ class PDJointPosMimicController(PDJointPosController):
 
 class PDJointPosMimicControllerConfig(PDJointPosControllerConfig):
     controller_cls = PDJointPosMimicController
+
+
+class PDGripperController(PDJointPosController):
+    def set_drive_property(self):
+        self.articulation.set_gripper_pd(
+            self.config.stiffness, self.config.damping, self.config.force_limit
+        )
+        self.articulation.left_gripper_joint.set_friction(self.config.friction)
+        self.articulation.right_gripper_joint.set_friction(self.config.friction)
+
+    def set_drive_targets(self, target: float):
+        self.articulation.set_gripper_target(target)
+
+
+class PDGripperControllerConfig(PDJointPosControllerConfig):
+    controller_cls = PDGripperController

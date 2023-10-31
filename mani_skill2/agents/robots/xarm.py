@@ -1,10 +1,15 @@
+from collections import OrderedDict
+
 import numpy as np
 import sapien
 
+from mani_skill2 import format_path
 from mani_skill2.agents.base_agent import BaseAgent
+from mani_skill2.agents.base_controller import CombinedController
 from mani_skill2.agents.configs.xarm import defaults
 from mani_skill2.utils.common import compute_angle_between
 from mani_skill2.utils.sapien_utils import get_pairwise_contact_impulse
+from .xarm_widget import XArm7 as XArm7Widget
 
 
 class XArm(BaseAgent):
@@ -72,6 +77,27 @@ class XArm7D435(XArm):
     @classmethod
     def get_default_config(cls):
         return defaults.XArm7D435DefaultConfig()
+
+    def _load_articulation(self):
+        self.robot: sapien.Widget = self.scene.load_widget(
+            XArm7Widget(asset_dir=format_path("{PACKAGE_ASSET_DIR}/descriptions/"))
+        )
+
+        # Cache robot link ids
+        self.robot_link_ids = [link.entity.per_scene_id for link in self.robot.links]
+
+    def _setup_controllers(self):
+        self.controllers = OrderedDict()
+        for uid, config in self.controller_configs.items():
+            if isinstance(config, dict):
+                self.controllers[uid] = CombinedController(
+                    config, self.robot, self._control_freq,
+                    balance_gravity=False, balance_coriolis=True
+                )
+            else:
+                self.controllers[uid] = config.controller_cls(
+                    config, self.robot, self._control_freq
+                )
 
 
 class FloatingXArm(XArm):

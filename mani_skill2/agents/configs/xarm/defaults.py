@@ -5,7 +5,8 @@ from mani_skill2.agents.controllers import (
     PDJointPosControllerConfig,
     PDEEPosControllerConfig,
     PDEEPoseControllerConfig,
-    PDJointPosMimicControllerConfig
+    PDJointPosMimicControllerConfig,
+    PDGripperControllerConfig
 )
 from mani_skill2.sensors.camera import CameraConfig
 
@@ -146,7 +147,7 @@ class XArm7DefaultConfig(XArmDefaultConfig):
 class XArm7D435DefaultConfig(XArmDefaultConfig):
     def __init__(self) -> None:
         super().__init__()
-        self.urdf_path = "{PACKAGE_ASSET_DIR}/descriptions/xarm7_pris_finger_d435.urdf"
+        self.urdf_path = "{PACKAGE_ASSET_DIR}/descriptions/xarm7_d435.urdf"
         self.arm_joint_names = [
             "joint1",
             "joint2",
@@ -156,6 +157,98 @@ class XArm7D435DefaultConfig(XArmDefaultConfig):
             "joint6",
             "joint7",
         ]
+        self.arm_stiffness = 1e6
+        self.arm_damping = 5e4
+        self.arm_force_limit = 100
+        self.arm_joint_friction = 0.05
+
+        self.gripper_joint_names = ["drive_joint"]
+        self.gripper_stiffness = 1e5
+        self.gripper_damping = 1e3
+        self.gripper_force_limit = 100
+        self.gripper_joint_friction = 0.05
+
+        self.ee_link_name = "link_tcp"
+
+    @property
+    def controllers(self):
+        # -------------------------------------------------------------------------- #
+        # Arm
+        # -------------------------------------------------------------------------- #
+        arm_pd_joint_delta_pos = PDJointPosControllerConfig(
+            joint_names=self.arm_joint_names,
+            lower=-0.1,
+            upper=0.1,
+            stiffness=self.arm_stiffness,
+            damping=self.arm_damping,
+            force_limit=self.arm_force_limit,
+            friction=self.arm_joint_friction,
+            use_delta=True,
+            use_target=False,
+            interpolate=False,
+            normalize_action=True,
+        )
+
+        # PD ee position
+        arm_pd_ee_delta_pos = PDEEPosControllerConfig(
+            joint_names=self.arm_joint_names,
+            lower=-0.1,
+            upper=0.1,
+            stiffness=self.arm_stiffness,
+            damping=self.arm_damping,
+            force_limit=self.arm_force_limit,
+            friction=self.arm_joint_friction,
+            ee_link=self.ee_link_name,
+            frame="ee",
+            use_delta=True,
+            use_target=False,
+            interpolate=False,
+            normalize_action=True,
+        )
+        arm_pd_ee_delta_pose = PDEEPoseControllerConfig(
+            joint_names=self.arm_joint_names,
+            pos_lower=-0.1,
+            pos_upper=0.1,
+            rot_bound=0.1,
+            stiffness=self.arm_stiffness,
+            damping=self.arm_damping,
+            force_limit=self.arm_force_limit,
+            friction=self.arm_joint_friction,
+            ee_link=self.ee_link_name,
+            frame="ee",
+            use_delta=True,
+            use_target=False,
+            interpolate=False,
+            normalize_action=True,
+        )
+
+        # -------------------------------------------------------------------------- #
+        # Gripper
+        # -------------------------------------------------------------------------- #
+        # NOTE(jigu): IssacGym uses large P and D but with force limit
+        # However, tune a good force limit to have a good mimic behavior
+        gripper_pd = PDGripperControllerConfig(
+            joint_names=self.gripper_joint_names,
+            lower=-0.01,  # -10
+            upper=0.85,   # 850
+            stiffness=self.gripper_stiffness,
+            damping=self.gripper_damping,
+            force_limit=self.gripper_force_limit,
+            friction=self.gripper_joint_friction,
+            use_delta=False,
+            use_target=False,
+            interpolate=False,
+            normalize_action=True,
+        )
+
+        controller_configs = dict(
+            pd_joint_delta_pos=dict(arm=arm_pd_joint_delta_pos, gripper=gripper_pd),
+            pd_ee_delta_pos=dict(arm=arm_pd_ee_delta_pos, gripper=gripper_pd),
+            pd_ee_delta_pose=dict(arm=arm_pd_ee_delta_pose, gripper=gripper_pd),
+        )
+
+        # Make a deepcopy in case users modify any config
+        return deepcopy_dict(controller_configs)
 
     @property
     def cameras(self):
@@ -168,7 +261,8 @@ class XArm7D435DefaultConfig(XArmDefaultConfig):
             fov=np.deg2rad(43.5),
             near=0.01,
             far=10,
-            entity_uid="camera_color_frame",
+            # entity_uid="camera_color_frame",
+            entity_uid="camera_depth_frame",
         )
 
 

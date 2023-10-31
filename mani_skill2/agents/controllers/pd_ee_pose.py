@@ -21,8 +21,14 @@ class PDEEPosController(PDJointPosController):
         super()._initialize_joints()
 
         # Pinocchio model to compute IK
-        self.pmodel = self.articulation.create_pinocchio_model()
-        self.qmask = np.zeros(self.articulation.dof, dtype=bool)
+        if isinstance(self.articulation, sapien.Widget):
+            robot = self.articulation.robot
+            self._wrapped_robot = True
+        else:
+            robot = self.articulation
+            self._wrapped_robot = False
+        self.pmodel = robot.create_pinocchio_model()
+        self.qmask = np.zeros(robot.dof, dtype=bool)
         self.qmask[self.joint_indices] = 1
 
         if self.config.ee_link:
@@ -86,7 +92,8 @@ class PDEEPosController(PDJointPosController):
         result, success, error = self.pmodel.compute_inverse_kinematics(
             self.ee_link_idx,
             target_pose,
-            initial_qpos=self.articulation.get_qpos(),
+            initial_qpos=(self.articulation.robot.qpos if self._wrapped_robot
+                          else self.articulation.qpos),
             active_qmask=self.qmask,
             max_iterations=max_iterations,
         )
