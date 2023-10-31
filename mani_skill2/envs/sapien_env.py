@@ -100,10 +100,7 @@ class BaseEnv(gym.Env):
             renderer_kwargs = {}
         if self._renderer_type == "sapien":
             self._renderer = sapien.SapienRenderer(**renderer_kwargs)
-            if shader_dir == "ibl":
-                sapien.render.set_camera_shader_dir("ibl")
-                sapien.render.set_viewer_shader_dir("ibl")
-            elif shader_dir == "rt":
+            if shader_dir == "rt":
                 sapien.render.set_camera_shader_dir("rt")
                 sapien.render.set_viewer_shader_dir("rt")
                 sapien.render.set_ray_tracing_samples_per_pixel(32)
