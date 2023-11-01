@@ -261,8 +261,8 @@ class XArm7D435DefaultConfig(XArmDefaultConfig):
             fov=np.deg2rad(43.5),
             near=0.01,
             far=10,
-            # entity_uid="camera_color_frame",
-            entity_uid="camera_depth_frame",
+            entity_uid="camera_color_frame",
+            # entity_uid="camera_depth_frame",
         )
 
 

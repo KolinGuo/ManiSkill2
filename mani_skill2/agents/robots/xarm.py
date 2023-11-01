@@ -99,6 +99,19 @@ class XArm7D435(XArm):
                     config, self.robot, self._control_freq
                 )
 
+    def get_proprioception(self):
+        obs = super().get_proprioception()
+        obs["qvel"][-1] = 0.0  # No gripper qvel
+        return obs
+
+    def reset(self, init_qpos=None):
+        super().reset(init_qpos)
+        # Also reset drive_target and drive_velocity_target
+        if init_qpos is not None:
+            self.robot.set_arm_target(init_qpos[:-1])
+            self.robot.set_gripper_target(init_qpos[-1])
+        self.robot.set_arm_velocity_target(np.zeros(len(self.robot.arm_joints)))
+
 
 class FloatingXArm(XArm):
     _config: defaults.FloatingXArmDefaultConfig

@@ -5,6 +5,7 @@ import numpy as np
 
 from mani_skill2 import make_box_space_readable
 from mani_skill2.envs.sapien_env import BaseEnv
+from mani_skill2.envs.grasping.base_env import GraspingEnv
 from mani_skill2.utils.visualization.cv2_utils import OpenCVViewer
 from mani_skill2.utils.wrappers import RecordEpisode
 
@@ -24,7 +25,7 @@ def parse_args():
     parser.add_argument("--reward-mode", type=str)
     parser.add_argument("-c", "--control-mode", type=str, default="pd_ee_delta_pose")
     parser.add_argument("--render-mode", type=str, default="cameras")
-    parser.add_argument("--enable-sapien-viewer", action="store_true")
+    parser.add_argument("-s", "--enable-sapien-viewer", action="store_true")
     parser.add_argument("--show-contact", action="store_true")
     parser.add_argument("--record-dir", type=str)
     args, opts = parser.parse_known_args()
@@ -63,6 +64,9 @@ def main():
             control_mode=args.control_mode,
             **args.env_kwargs
         )
+    # Remove TimeLimit wrapper
+    if isinstance(env, gym.wrappers.TimeLimit):
+        env = env.env
 
     record_dir = args.record_dir
     if record_dir:
@@ -159,6 +163,11 @@ def main():
         else:
             raise NotImplementedError(args.control_mode)
 
+        finish_action = None
+        if isinstance(env.unwrapped, GraspingEnv):
+            print(f"Grasping Env: {env}", flush=True)
+            finish_action = 0
+
         # Base
         if has_base:
             if key == "w":  # forward
@@ -215,6 +224,11 @@ def main():
             elif key == "g":  # close gripper
                 gripper_action = -1
 
+        # Finish action
+        if finish_action is not None:
+            if key == "y":
+                finish_action = 1
+
         # Other functions
         if key == "0":  # switch to SAPIEN viewer
             print("[ INFO ] Switching to SAPIEN viewer")
@@ -269,6 +283,10 @@ def main():
         else:
             action_dict = dict(base=base_action, arm=ee_action, gripper=gripper_action)
             action = env.agent.controller.from_action_dict(action_dict)
+
+        if finish_action is not None:
+            print(f"Finish action: {finish_action}", flush=True)
+            action = np.hstack([action, finish_action])
 
         obs, reward, done, info = env.step(action)
         print("reward", reward)

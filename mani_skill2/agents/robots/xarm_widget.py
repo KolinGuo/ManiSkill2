@@ -50,10 +50,10 @@ class XArm7(sapien.Widget):
         self.set_arm_pd([1e6] * 7, [5e4] * 7, [100] * 7)
         self.set_gripper_pd(1e5, 1e3, 100)
 
-        self.robot.set_qpos([0, 0, 0, np.pi / 3, 0, np.pi / 3, -np.pi / 2] + [0] * 6)
+        self.robot.set_qpos([0, 0, 0, np.pi / 3, 0, np.pi / 3, -np.pi / 2] + [0.85] * 6)
         self.robot.set_qvel(np.zeros(13))
         self.set_arm_target([0, 0, 0, np.pi / 3, 0, np.pi / 3, -np.pi / 2])
-        self.set_gripper_target(0)
+        self.set_gripper_target(0.85)
 
     def _create_drives(self, scene: sapien.Scene) -> None:
         """Create drive joints and gear joint for gripper"""

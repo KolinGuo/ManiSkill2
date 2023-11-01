@@ -19,17 +19,26 @@ class RGBDObservationWrapper(gym.ObservationWrapper):
     def __init__(self, env, obs_mode="rgbd"):
         """
         :param obs_mode: if obs_mode == 'rgb', use only Color
+                         Available: rgb, rgbd, depth, depth_mask
         """
         super().__init__(env)
         self.obs_mode = obs_mode
         self.observation_space = deepcopy(env.observation_space)
-        # Remove Position from camera obs space
+        # Remove Position/Color from camera obs space
         for cam_space in self.observation_space["image"].spaces.values():
             if self.obs_mode == "rgb":
                 cam_space.spaces.pop("Position", None)
+            elif self.obs_mode in ["depth", "depth_mask"]:
+                cam_space.spaces.pop("Color", None)
+
             if hasattr(env, 'bg_mask_obs') and env.bg_mask_obs:
                 height, width = cam_space.spaces.pop("Segmentation").shape[:2]
                 cam_space.spaces["bg_mask"] = spaces.Box(
+                    False, True, shape=(height, width, 1), dtype=bool
+                )  # NOTE: sample() gives wrong values
+            elif "mask" in self.obs_mode:
+                height, width = cam_space.spaces.pop("Segmentation").shape[:2]
+                cam_space.spaces["obj_mask"] = spaces.Box(
                     False, True, shape=(height, width, 1), dtype=bool
                 )  # NOTE: sample() gives wrong values
             else:
@@ -69,7 +78,7 @@ class RGBDObservationWrapper(gym.ObservationWrapper):
                 if key == "Color":
                     rgb = ori_images[key][..., :3]  # [H, W, 4]
                     rgb = np.clip(rgb * 255, 0, 255).astype(np.uint8)
-                    new_images["rgb"] = rgb  # [H, W, 4]
+                    new_images["rgb"] = rgb  # [H, W, 3]
                 elif key == "Position":
                     depth = -ori_images[key][..., [2]]  # [H, W, 1]
                     new_images["depth"] = depth

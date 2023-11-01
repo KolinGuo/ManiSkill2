@@ -127,11 +127,9 @@ class BaseAgent:
 
     def set_control_mode(self, control_mode):
         """Set the controller and reset."""
-        assert (
-            control_mode in self.supported_control_modes
-        ), "{} not in supported modes: {}".format(
-            control_mode, self.supported_control_modes
-        )
+        assert control_mode in self.supported_control_modes, \
+            "{} not in supported modes: {}".format(control_mode,
+                                                   self.supported_control_modes)
         self._control_mode = control_mode
         self.controller.reset()
 

@@ -38,7 +38,7 @@ def images_to_video(
 class OpenCVViewer:
     def __init__(self, name="OpenCVViewer", is_rgb=True, exit_on_esc=True):
         self.name = name
-        cv2.namedWindow(name, cv2.WINDOW_AUTOSIZE)
+        cv2.namedWindow(name, cv2.WINDOW_NORMAL)
         self.is_rgb = is_rgb
         self.exit_on_esc = exit_on_esc
 

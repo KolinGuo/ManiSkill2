@@ -15,14 +15,14 @@ from mani_skill2.utils.registration import register_env
 from mani_skill2.utils.camera import resize_obs_images
 from mani_skill2.agents.robots.xarm import FloatingXArm, FloatingXArmD435
 
-from .base_env import StationaryManipulationEnv
-from .pick_single import build_actor_ycb
+from .base_env import GraspingEnv
+from ..pick_and_place.pick_single import build_actor_ycb
 
 
 @register_env("GraspWithPrompt-v0", max_episode_steps=10,
               reward_mode="dense",
               robot="floating_xarm_d435", image_obs_mode="hand")
-class GraspWithPromptEnv(StationaryManipulationEnv):
+class GraspWithPromptEnv(GraspingEnv):
     DEFAULT_ASSET_ROOTS = {
         "ycb": "{ASSET_DIR}/mani_skill2_ycb",
     }

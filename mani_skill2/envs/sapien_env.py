@@ -63,7 +63,7 @@ class BaseEnv(gym.Env):
 
     # fmt: off
     SUPPORTED_OBS_MODES = ("state", "state_dict", "none", "image")
-    SUPPORTED_REWARD_MODES = ("dense", "sparse")
+    SUPPORTED_REWARD_MODES = ("normalized_dense", "dense", "sparse")
     # fmt: on
 
     agent: BaseAgent
@@ -118,7 +118,7 @@ class BaseEnv(gym.Env):
             raise NotImplementedError(self._renderer_type)
 
         self._engine.set_renderer(self._renderer)
-        self._viewer = None
+        self._viewer: Viewer = None
 
         # Set simulation and control frequency
         self._sim_freq = sim_freq
@@ -329,10 +329,15 @@ class BaseEnv(gym.Env):
             return float(eval_info["success"])
         elif self._reward_mode == "dense":
             return self.compute_dense_reward(**kwargs)
+        elif self._reward_mode == "normalized_dense":
+            return self.compute_normalized_dense_reward(**kwargs)
         else:
             raise NotImplementedError(self._reward_mode)
 
     def compute_dense_reward(self, **kwargs):
+        raise NotImplementedError
+
+    def compute_normalized_dense_reward(self, **kwargs):
         raise NotImplementedError
 
     # -------------------------------------------------------------------------- #
@@ -586,7 +591,7 @@ class BaseEnv(gym.Env):
     # -------------------------------------------------------------------------- #
     def _get_default_scene_config(self):
         scene_config = sapien.SceneConfig()
-        physx.set_default_material(static_friction=0.3, dynamic_friction=0.3,
+        physx.set_default_material(static_friction=1.0, dynamic_friction=1.0,
                                    restitution=0.0)
         scene_config.contact_offset = 0.02
         scene_config.solver_iterations = 25
@@ -601,7 +606,7 @@ class BaseEnv(gym.Env):
         The function should be called in reset(). Called by `self.reconfigure`"""
         if scene_config is None:
             scene_config = self._get_default_scene_config()
-        self._scene = self._engine.create_scene(scene_config)
+        self._scene: sapien.Scene = self._engine.create_scene(scene_config)
         self._scene.set_timestep(1.0 / self._sim_freq)
         # Load scene environment map only
         arena = self._scene.load_widget_from_package("sapien_demo_arena", "DemoArena")
@@ -616,7 +621,7 @@ class BaseEnv(gym.Env):
         self.agent = None
         self._cameras = OrderedDict()
         self._render_cameras = OrderedDict()
-        self._scene = None
+        self._scene: sapien.Scene = None
 
     def close(self):
         self._clear()
@@ -625,7 +630,7 @@ class BaseEnv(gym.Env):
         if self._viewer is None:
             return
         self._viewer.close()
-        self._viewer = None
+        self._viewer: Viewer = None
 
     # -------------------------------------------------------------------------- #
     # Simulation state (required for MPC)
@@ -686,8 +691,9 @@ class BaseEnv(gym.Env):
         # CAUTION: `set_scene` should be called after assets are loaded.
         self._viewer.set_scene(self._scene)
         # TODO (stao): @fxiang is this the best way to get the toggles for axes and camera lines?
-        control_window = get_obj_by_type(
-            self._viewer.plugins, sapien.utils.viewer.control_window.ControlWindow
+        control_window_type = sapien.utils.viewer.control_window.ControlWindow
+        control_window: control_window_type = get_obj_by_type(
+            self._viewer.plugins, control_window_type
         )
         control_window.show_joint_axes = False
         control_window.show_camera_linesets = False
@@ -696,7 +702,7 @@ class BaseEnv(gym.Env):
         self.update_render()
         if mode == "human":
             if self._viewer is None:
-                self._viewer = Viewer(self._renderer)
+                self._viewer: Viewer = Viewer(self._renderer)
                 self._setup_viewer()
             self._viewer.render()
             return self._viewer
@@ -752,5 +758,8 @@ class BaseEnv(gym.Env):
                 )
 
         scene_mesh = merge_meshes(meshes)
-        scene_pcd = scene_mesh.sample(num_points)
-        return scene_pcd
+        if scene_mesh is not None:
+            scene_pcd = scene_mesh.sample(num_points)
+            return scene_pcd
+        else:
+            return None
