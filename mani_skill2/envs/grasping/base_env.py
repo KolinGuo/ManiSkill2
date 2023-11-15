@@ -1,11 +1,13 @@
 from collections import OrderedDict
-from typing import Dict, Type, Union
+from typing import Tuple, Type, Union
 
+import cv2
 import numpy as np
 import sapien
 import sapien.physx as physx
 from gym import spaces
 from sapien import Pose
+from sapien.utils import Viewer
 from transforms3d.euler import euler2quat
 
 from mani_skill2.agents.base_agent import BaseAgent
@@ -19,10 +21,10 @@ from mani_skill2.agents.utils import get_active_joint_indices
 from mani_skill2.envs.sapien_env import BaseEnv
 from mani_skill2.sensors.camera import CameraConfig
 from mani_skill2.utils.sapien_utils import (
-    look_at,
     set_articulation_render_material,
     vectorize_pose,
 )
+from mani_skill2.utils.visualization.misc import observations_to_images, tile_images
 
 
 class GraspingEnv(BaseEnv):
@@ -45,7 +47,11 @@ class GraspingEnv(BaseEnv):
                  no_tcp_pose_obs=False,
                  use_random_camera_pose=False,
                  random_camera_pose_per_step=False,
+                 verbosity_level=1,
                  **kwargs):
+        """
+        :param verbosity_level: 0 is nothing, 1 is minimal, 2 is everything.
+        """
         self.robot_uid = robot
         self.robot_init_qpos_noise = robot_init_qpos_noise
         if robot not in self.SUPPORTED_ROBOTS:
@@ -66,6 +72,7 @@ class GraspingEnv(BaseEnv):
         self.no_tcp_pose_obs = no_tcp_pose_obs
         self.use_random_camera_pose = use_random_camera_pose
         self.random_camera_pose_per_step = random_camera_pose_per_step
+        self.verbosity_level = verbosity_level
 
         self.pmodel: sapien.PinocchioModel = None  # for _check_feasible_grasp_pose
 
@@ -75,10 +82,9 @@ class GraspingEnv(BaseEnv):
         super().__init__(*args, **kwargs)
 
         # Update action_space and observation_space
-        self.action_space = spaces.Dict({
-            "agent": self.agent.action_space,
-            "finish": spaces.Discrete(2)  # {0, 1}
-        })
+        self.action_space = spaces.Tuple([
+            self.agent.action_space, spaces.Discrete(2)  # {0, 1}
+        ])
         if self._obs_mode == "image":
             image_obs_space = self.observation_space.spaces["image"]
             for cam_name in image_obs_space:
@@ -172,11 +178,11 @@ class GraspingEnv(BaseEnv):
         x = self._episode_rng.uniform(-0.095 + radius, 0.668 - radius)
         y = self._episode_rng.uniform(-0.494 + radius, 0.075 - radius)
         p = [x, y, half_length]
-        q = euler2quat(0, np.pi/2, 0)
+        q = euler2quat(0, np.pi / 2, 0)
         self.turntable.set_pose(Pose(p, q))
 
         if rot_speed is None:
-            rot_speed = 2*np.pi / self._episode_rng.uniform(18.3, 49)
+            rot_speed = 2 * np.pi / self._episode_rng.uniform(18.3, 49)
 
         self.turntable_delta_pose = Pose(
             q=euler2quat(rot_speed * self.sim_timestep, 0.0, 0.0)
@@ -209,8 +215,10 @@ class GraspingEnv(BaseEnv):
 
         # Select camera_cfgs based on image_obs_mode
         camera_cfgs = OrderedDict()
+        render_camera_cfgs = OrderedDict()
         if self._image_obs_mode == "hand":
             camera_cfgs["hand_camera"] = self._camera_cfgs["hand_camera"]
+            render_camera_cfgs["front_camera"] = self._camera_cfgs["front_camera"]
         elif self._image_obs_mode == "hand_front":
             camera_cfgs["front_camera"] = self._camera_cfgs["front_camera"]
             camera_cfgs["hand_camera"] = self._camera_cfgs["hand_camera"]
@@ -221,12 +229,11 @@ class GraspingEnv(BaseEnv):
         for cfg in camera_cfgs.values():
             cfg.texture_names += ("Segmentation",)
         self._camera_cfgs = camera_cfgs
+        self._render_camera_cfgs = render_camera_cfgs
 
     def _register_render_cameras(self):
         """Register cameras for rendering."""
-        # pose = look_at([0.5, 0.5, 1.0], [0.0, 0.0, 0.5])
-        # return CameraConfig("render_camera", pose.p, pose.q, 512, 512, 1, 0.01, 10)
-        return []
+        return self._render_camera_cfgs
 
     def _configure_render_cameras(self):
         super()._configure_render_cameras()
@@ -238,9 +245,9 @@ class GraspingEnv(BaseEnv):
         # Update camera intrinsics
         if "hand_camera" in self._cameras:
             K_rgb = np.array([
-                [605.12158203125,     0., 424.5927734375],
-                [0.,    604.905517578125, 236.668975830078],
-                [0.,                  0.,   1.]
+                [605.12158203125, 0.0, 424.5927734375],
+                [0.0, 604.905517578125, 236.668975830078],
+                [0.0, 0.0, 1.0],
             ])
             self._cameras["hand_camera"].camera.set_perspective_parameters(
                 0.01, 100.0, K_rgb[0, 0], K_rgb[1, 1],
@@ -314,6 +321,12 @@ class GraspingEnv(BaseEnv):
         else:
             raise NotImplementedError(self.robot_uid)
 
+    def initialize_episode(self):
+        super().initialize_episode()
+
+        if self.verbosity_level >= 1:
+            print(f"[ENV] Finish initializing episode (seed={self._episode_seed})")
+
     # ---------------------------------------------------------------------- #
     # Reset
     # ---------------------------------------------------------------------- #
@@ -341,12 +354,12 @@ class GraspingEnv(BaseEnv):
 
             # Check collision between these actors during init
             self.check_col_actor_ids = (
-                [l.entity.per_scene_id for a in self._articulations for l in a.links] +
-                [e.per_scene_id for e in self._actors if e.name != 'ground']
+                [l.entity.per_scene_id for a in self._articulations for l in a.links]
+                + [e.per_scene_id for e in self._actors if e.name != 'ground']
             )
             super().reconfigure()
 
-    def _check_collision(self, robot_qpos=None, thres=1e-3, verbose=True) -> bool:
+    def _check_collision(self, robot_qpos=None, thres=1e-3) -> bool:
         """Checks whether scene has collision in _scene_col"""
         # Set agent and scene objects in _scene_col to match _scene
         for art_col, art in zip(self._articulations_col, self._articulations):
@@ -383,7 +396,7 @@ class GraspingEnv(BaseEnv):
                     and (sep := point.separation) < 0
                     and (impulse_norm := np.linalg.norm(point.impulse)) > thres
                 ):
-                    if verbose:
+                    if self.verbosity_level >= 2:
                         print(f"[ENV] Contact: {entity0.name=}, {entity1.name=},"
                               f" {sep = :.3e}, {impulse_norm = :.3e}")
                     return True
@@ -427,9 +440,9 @@ class GraspingEnv(BaseEnv):
                 qpos = qpos[:self.agent.robot.dof]
 
             if (
-                success and  # feasible IK
-                not (self.check_collision_during_IK  # check collision
-                     and self._check_collision(qpos))  # has collision
+                success  # feasible IK
+                and not (self.check_collision_during_IK  # check collision
+                         and self._check_collision(qpos))  # has collision
             ):
                 self.robot_grasp_qpos = qpos
                 return True
@@ -461,22 +474,29 @@ class GraspingEnv(BaseEnv):
     # -------------------------------------------------------------------------- #
     # Step
     # -------------------------------------------------------------------------- #
-    def step(self, action: Union[None, np.ndarray, Dict]):
+    def step(self, action: Union[None, np.ndarray, Tuple[np.ndarray, int]]):
         """Last dimension of action is a discrete finish indicator (1 is finished)"""
         self._elapsed_steps += 1
 
         if self.use_random_camera_pose and self.random_camera_pose_per_step:
             self._randomize_camera_pose()
 
-        if action is not None and action[-1] == 1:
+        agent_action, finish_action = None, 0
+        if action is not None:
+            agent_action, finish_action = action
+            assert isinstance(finish_action, int), \
+                f"finish_action must be int, got {finish_action=}"
+
+        if finish_action == 1:
             obs, reward, done, info = self.execute_ending_action()
         else:
-            self.step_action(action[:-1] if action is not None else None)
+            self.step_action(agent_action)
             obs = self.get_obs()
             info = self.get_info(obs=obs)
             reward = self.get_reward(obs=obs, action=action, info=info)
             done = self.get_done(obs=obs, info=info)
 
+        info["finish_action"] = finish_action
         return obs, reward, done, info
 
     def execute_ending_action(self) -> tuple:
@@ -524,3 +544,48 @@ class GraspingEnv(BaseEnv):
         super()._setup_viewer()
         self._viewer.set_camera_xyz(0.8, 0, 1.0)
         self._viewer.set_camera_rpy(0, -0.5, 3.14)
+
+    # -------------------------------------------------------------------------- #
+    # Visualization
+    # -------------------------------------------------------------------------- #
+    def render(self, mode="human", **kwargs):
+        self.update_render()
+        if mode == "human":
+            if self._viewer is None:
+                self._viewer: Viewer = Viewer(self._renderer)
+                self._setup_viewer()
+            self._viewer.render()
+            return self._viewer
+        elif mode == "rgb_array":
+            images = []
+            cameras = self._render_cameras if len(self._render_cameras) > 0 \
+                else self._cameras
+            for camera in cameras.values():
+                rgba = camera.get_images(take_picture=True)["Color"]
+                rgb = np.clip(rgba[..., :3] * 255, 0, 255).astype(np.uint8)
+                images.append(rgb)
+            if len(images) == 1:
+                return images[0]
+            return tile_images(images)
+        elif mode == "cameras":
+            if len(self._render_cameras) > 0:
+                images = [
+                    cv2.resize(
+                        self.render("rgb_array"),
+                        (384, 384),  # (W, H)
+                        interpolation=cv2.INTER_NEAREST_EXACT,
+                    )
+                ]
+            else:
+                images = []
+
+            # NOTE(jigu): Must update renderer again
+            # since some visual-only sites like goals should be hidden.
+            self.update_render()
+            self.take_picture()
+            cameras_images = self.get_obs()["image"]
+            for camera_images in cameras_images.values():
+                images.extend(observations_to_images(camera_images))
+            return tile_images(images)
+        else:
+            raise NotImplementedError(f"Unsupported render mode {mode}.")

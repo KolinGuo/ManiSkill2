@@ -90,6 +90,15 @@ def observations_to_images(observations, max_depth=None) -> List[np.ndarray]:
             actor_seg = np.uint8(seg[..., 1:2] * [11, 61, 127])  # [H, W, 3]
             images.append(visual_seg)
             images.append(actor_seg)
+        elif "mask" in key:
+            mask: np.ndarray = observations[key]  # [H, W, 1]
+            assert mask.ndim == 3 and mask.shape[-1] == 1, mask.shape
+            if mask.dtype == bool:
+                mask = np.uint8(mask * [255, 255, 255])  # [H, W, 3]
+            else:
+                # A heuristic way to colorize labels
+                mask = np.uint8(mask * [11, 61, 127])  # [H, W, 3]
+            images.append(mask)
     return images
 
 

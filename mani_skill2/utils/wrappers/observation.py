@@ -71,6 +71,8 @@ class RGBDObservationWrapper(gym.ObservationWrapper):
         image_obs = observation["image"]
         if self.obs_mode == "rgb":
             [cam_obs.pop("Position", None) for cam_obs in image_obs.values()]
+        elif self.obs_mode in ["depth", "depth_mask"]:
+            [cam_obs.pop("Color", None) for cam_obs in image_obs.values()]
 
         for cam_uid, ori_images in image_obs.items():
             new_images = OrderedDict()

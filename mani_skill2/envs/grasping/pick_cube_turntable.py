@@ -14,7 +14,7 @@ from .base_env import GraspingEnv
 
 @register_env("PickCubeTurntable-v0", max_episode_steps=50,
               reward_mode="normalized_dense", control_mode="pd_ee_delta_pose",
-              use_random_camera_pose=True)
+              image_obs_mode="hand", use_random_camera_pose=True)
 class PickCubeTurntableEnv(GraspingEnv):
     def __init__(self, *args,
                  cube_init_rot_z=True,
@@ -81,7 +81,7 @@ class PickCubeTurntableEnv(GraspingEnv):
                 return True
         return False
 
-    def _sample_tcp_pose(self, max_trials=100) -> bool:
+    def _sample_tcp_pose(self, max_trials=20) -> bool:
         """Sample a valid tcp pose with objects visible"""
         pose_cam_ee = Pose(np.array(
             [[0, 0, 1, 0],
@@ -120,7 +120,7 @@ class PickCubeTurntableEnv(GraspingEnv):
                 return True
         return False
 
-    def _initialize_agent(self, max_trials=20):
+    def _initialize_agent(self, max_trials=50):
         super()._initialize_agent()
 
         # Reset camera pose to original
@@ -131,28 +131,34 @@ class PickCubeTurntableEnv(GraspingEnv):
         # ----- Check IK feasible and object visible -----
         for _ in range(max_trials):
             # Ensure goal_ee_pose is feasible
-            for _ in range(max_trials):
-                if self._check_feasible_grasp_pose(self.tcp_goal_pos):
-                    break
-                print("[ENV] No successful goal grasp pose found!")
-                self._initialize_actors()  # reinitialize actors pose
-                super()._initialize_agent()  # reset robot qpos and base_pose
-            else:
-                raise RuntimeError(
-                    "Cannot sample layout with valid goal grasp pose.\n"
-                    f"Env state: {self.get_state().tolist()}"
-                )
+            # for _ in range(max_trials):
+            #     if self._check_feasible_grasp_pose(self.tcp_goal_pos):
+            #         break
+            #     if self.verbosity_level >= 2:
+            #         print("[ENV] No successful goal grasp pose found!")
+            #     self._initialize_actors()  # reinitialize actors pose
+            #     super()._initialize_agent()  # reset robot qpos and base_pose
+            # else:
+            #     raise RuntimeError(
+            #         "Cannot sample layout with valid goal grasp pose.\n"
+            #         f"Env state: {self.get_state().tolist()}"
+            #     )
+            # NOTE: tcp_goal_pos is always feasible
+            # assert self._check_feasible_grasp_pose(self.tcp_goal_pos), \
+            #     f"Not feasible {self.tcp_goal_pos=}"
 
             # Ensure init_ee_pose is feasible
             #   and all objects are visible in at least one orig camera view
-            for _ in range(max_trials):
+            for _ in range(5):
                 if (self._check_feasible_grasp_pose(self.cube.pose.p)
                         and self._sample_tcp_pose()):
                     break
-                print("[ENV] No successful init grasp pose found!")
+                if self.verbosity_level >= 2:
+                    print("[ENV] No successful init grasp pose found!")
                 self._initialize_cube_actor()  # reinitialize cube pose
             else:
-                print("[ENV] Timeout sampling cube pose, resample layout!")
+                if self.verbosity_level >= 2:
+                    print("[ENV] Timeout sampling cube pose, resample layout!")
                 self._initialize_actors()  # reinitialize bowl & cube pose
                 super()._initialize_agent()  # reset robot qpos and base_pose
                 continue  # go back to ensure goal_ee_pose
@@ -168,7 +174,8 @@ class PickCubeTurntableEnv(GraspingEnv):
                 self._randomize_camera_pose()
                 if self._check_object_visible():
                     break
-                print("[ENV] not all objects are visible!")
+                if self.verbosity_level >= 2:
+                    print("[ENV] not all objects are visible!")
             else:
                 raise RuntimeError(
                     "Cannot sample random camera pose with all objects "
@@ -185,9 +192,8 @@ class PickCubeTurntableEnv(GraspingEnv):
         if self._obs_mode == "image":
             # Keep only target object segmentation: (H, W, 1) bool
             for cam_name, cam_obs in obs["image"].items():
-                cam_obs["Segmentation"] = (
-                    cam_obs["Segmentation"][..., [1]] == self.cube.per_scene_id
-                )
+                seg_obs = cam_obs.pop("Segmentation")
+                cam_obs["obj_mask"] = seg_obs[..., [1]] == self.cube.per_scene_id
             obs = resize_obs_images(obs, self.image_obs_shape)
         return obs
 
@@ -247,7 +253,8 @@ class PickCubeTurntableEnv(GraspingEnv):
         # for _ in range(max_trials):
         #     if self._check_feasible_grasp_pose(goal_pos):
         #         break
-        #     print("[ENV] No successful goal grasp pose found during ending action!")
+        #     if self.verbosity_level >= 2:
+        #         print("[ENV] No successful goal grasp pose found during ending action!")
         #     goal_pos = (
         #         Pose(self._episode_rng.uniform([-0.1, -0.1, -0.05], [0.1, 0.1, 0.05]))
         #         * target_tcp_pose
@@ -343,5 +350,7 @@ class PickCubeTurntableEnv(GraspingEnv):
             tcp_to_cube_dist=tcp_to_cube_dist,
             cube_to_goal_dist=cube_to_goal_dist,
             tcp_to_goal_dist=tcp_to_goal_dist,
+            total_ending_steps=-1,
+            ending_static_steps=-1,
         )
         return eval_dict
