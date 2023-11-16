@@ -150,8 +150,10 @@ class PickCubeTurntableEnv(GraspingEnv):
             # Ensure init_ee_pose is feasible
             #   and all objects are visible in at least one orig camera view
             for _ in range(5):
-                if (self._check_feasible_grasp_pose(self.cube.pose.p)
-                        and self._sample_tcp_pose()):
+                if (
+                    self._check_feasible_grasp_pose(self.cube.pose.p)
+                    and self._sample_tcp_pose()
+                ):
                     break
                 if self.verbosity_level >= 2:
                     print("[ENV] No successful init grasp pose found!")
@@ -161,27 +163,32 @@ class PickCubeTurntableEnv(GraspingEnv):
                     print("[ENV] Timeout sampling cube pose, resample layout!")
                 self._initialize_actors()  # reinitialize bowl & cube pose
                 super()._initialize_agent()  # reset robot qpos and base_pose
-                continue  # go back to ensure goal_ee_pose
+                continue  # go back to restart initialization
+
+            # Randomize camera pose while ensuring
+            #   all objects are visible in at least one camera view
+            if (self.use_random_camera_pose and not self.random_camera_pose_per_step):
+                for _ in range(max_trials):
+                    self._randomize_camera_pose()
+                    if self._check_object_visible():
+                        break
+                    if self.verbosity_level >= 2:
+                        print("[ENV] not all objects are visible!")
+                else:
+                    if self.verbosity_level >= 2:
+                        print("[ENV] Cannot sample random camera pose "
+                              "with all objects visible")
+                    # Reset camera pose to original
+                    for cam_name, camera in self._cameras.items():
+                        camera.camera.local_pose = camera.camera_cfg.pose
+                    self._initialize_actors()  # reinitialize bowl & cube pose
+                    super()._initialize_agent()  # reset robot qpos and base_pose
+                    continue  # go back to restart initialization
             break
         else:
             raise RuntimeError(
                 f"Cannot sample valid layout (seed={self._episode_seed})"
             )
-
-        # Randomize camera pose while ensuring
-        #   all objects are visible in at least one camera view
-        if (self.use_random_camera_pose and not self.random_camera_pose_per_step):
-            for _ in range(max_trials):
-                self._randomize_camera_pose()
-                if self._check_object_visible():
-                    break
-                if self.verbosity_level >= 2:
-                    print("[ENV] not all objects are visible!")
-            else:
-                raise RuntimeError(
-                    "Cannot sample random camera pose with all objects visible"
-                    f" (seed={self._episode_seed})"
-                )
 
     # ---------------------------------------------------------------------- #
     # Observation
