@@ -164,8 +164,9 @@ class PickCubeTurntableEnv(GraspingEnv):
                 continue  # go back to ensure goal_ee_pose
             break
         else:
-            raise RuntimeError("Cannot sample valid layout\n"
-                               f"Env state: {self.get_state().tolist()}")
+            raise RuntimeError(
+                f"Cannot sample valid layout (seed={self._episode_seed})"
+            )
 
         # Randomize camera pose while ensuring
         #   all objects are visible in at least one camera view
@@ -178,8 +179,8 @@ class PickCubeTurntableEnv(GraspingEnv):
                     print("[ENV] not all objects are visible!")
             else:
                 raise RuntimeError(
-                    "Cannot sample random camera pose with all objects "
-                    f"visible.\nEnv state: {self.get_state().tolist()}"
+                    "Cannot sample random camera pose with all objects visible"
+                    f" (seed={self._episode_seed})"
                 )
 
     # ---------------------------------------------------------------------- #
