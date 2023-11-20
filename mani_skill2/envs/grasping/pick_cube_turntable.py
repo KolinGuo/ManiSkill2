@@ -306,6 +306,7 @@ class PickCubeTurntableEnv(GraspingEnv):
         self.agent.robot.set_arm_target(qpos[:7])
         self.agent.robot.set_gripper_target(-0.01)
 
+        env_start_state = self.get_state().tolist()
         total_ending_steps = 0
         for _ in range(100):
             self.step_action(None)
@@ -314,11 +315,16 @@ class PickCubeTurntableEnv(GraspingEnv):
             if np.linalg.norm(self.tcp_goal_pos - self.tcp.pose.p) <= 1e-3:  # 1mm
                 break
         else:
-            raise RuntimeError(f"Took too long to reach {self.tcp_goal_pos=}")
+            raise RuntimeError(
+                f"Took too long to reach {self.tcp_goal_pos=} "
+                f"(seed={self._episode_seed}, {env_start_state=}, {qpos=}, "
+                f"env_end_state={self.get_state().tolist()})"
+            )
 
         # ----- Hold TCP static at goal_pos ----- #
         assert self.control_mode == "pd_ee_delta_pose", f"Wrong {self.control_mode=}"
 
+        env_start_state = self.get_state().tolist()
         ending_static_steps = 0
         for _ in range(100):
             action = np.asarray([0] * 6 + [-1], dtype=np.float32)
@@ -329,7 +335,11 @@ class PickCubeTurntableEnv(GraspingEnv):
             if self.check_robot_static():
                 break
         else:
-            raise RuntimeError("Took too long to stop robot")
+            raise RuntimeError(
+                "Took too long to stop robot"
+                f"(seed={self._episode_seed}, {env_start_state=}, "
+                f"env_end_state={self.get_state().tolist()})"
+            )
 
         obs = self.get_obs()
         info = self.get_info(obs=obs)
