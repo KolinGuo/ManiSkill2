@@ -194,7 +194,7 @@ def get_actor_state(actor: sapien.Entity):
     else:
         vel = component.get_linear_velocity()  # [3]
         ang_vel = component.get_angular_velocity()  # [3]
-    return np.hstack([pose.p, pose.q, vel, ang_vel])
+    return np.hstack([pose.p, pose.q, vel, ang_vel])  # [13,]
 
 
 def set_actor_state(actor: sapien.Entity, state: np.ndarray):
@@ -206,23 +206,36 @@ def set_actor_state(actor: sapien.Entity, state: np.ndarray):
         component.set_angular_velocity(state[10:13])
 
 
-def get_articulation_state(articulation: physx.PhysxArticulation):
-    root_link = articulation.get_links()[0]
-    pose = root_link.get_pose()
-    vel = root_link.get_linear_velocity()  # [3]
-    ang_vel = root_link.get_angular_velocity()  # [3]
-    qpos = articulation.get_qpos()
-    qvel = articulation.get_qvel()
-    return np.hstack([pose.p, pose.q, vel, ang_vel, qpos, qvel])
+def get_articulation_state(art: physx.PhysxArticulation):
+    pose = art.root_pose
+    vel = art.root_velocity  # [3]
+    ang_vel = art.root_angular_velocity  # [3]
+    qpos = art.qpos  # [dof,]
+    qvel = art.qvel  # [dof,]
+    qacc = art.qacc  # [dof,]
+    qf = art.qf  # [dof,]
+    drive_target = np.hstack(
+        [j.drive_target for j in art.active_joints]
+    )  # [dof,]
+    drive_vel_target = np.hstack(
+        [j.drive_velocity_target for j in art.active_joints]
+    )  # [dof,]
+    return np.hstack([pose.p, pose.q, vel, ang_vel,
+                      qpos, qvel, qacc, qf, drive_target, drive_vel_target])
 
 
-def set_articulation_state(articulation: physx.PhysxArticulation, state: np.ndarray):
-    articulation.set_root_pose(Pose(state[0:3], state[3:7]))
-    articulation.set_root_velocity(state[7:10])
-    articulation.set_root_angular_velocity(state[10:13])
-    qpos, qvel = np.split(state[13:], 2)
-    articulation.set_qpos(qpos)
-    articulation.set_qvel(qvel)
+def set_articulation_state(art: physx.PhysxArticulation, state: np.ndarray):
+    art.set_root_pose(Pose(state[0:3], state[3:7]))
+    art.set_root_velocity(state[7:10])
+    art.set_root_angular_velocity(state[10:13])
+    qpos, qvel, qacc, qf, drive_target, drive_vel_target = np.split(state[13:], 6)
+    art.set_qpos(qpos)
+    art.set_qvel(qvel)
+    art.set_qacc(qacc)
+    art.set_qf(qf)
+    for j, t, v_t in zip(art.active_joints, drive_target, drive_vel_target):
+        j.set_drive_target(t)
+        j.set_drive_velocity_target(v_t)
 
 
 def get_articulation_padded_state(articulation: physx.PhysxArticulation, max_dof: int):

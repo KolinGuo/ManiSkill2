@@ -661,7 +661,7 @@ class BaseEnv(gym.Env):
             set_actor_state(actor, state[start : start + KINEMANTIC_DIM])
             start += KINEMANTIC_DIM
         for articulation in self._articulations:
-            ndim = KINEMANTIC_DIM + 2 * articulation.dof
+            ndim = KINEMANTIC_DIM + 6 * articulation.dof
             set_articulation_state(articulation, state[start : start + ndim])
             start += ndim
 
