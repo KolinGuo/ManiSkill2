@@ -360,7 +360,7 @@ class GraspingEnv(BaseEnv):
             super().reconfigure()
 
     def _check_collision(self, robot_qpos=None, thres=1e-3) -> bool:
-        """Checks whether scene has collision in _scene_col"""
+        """Checks whether scene has static collision in _scene_col"""
         # Set agent and scene objects in _scene_col to match _scene
         for art_col, art in zip(self._articulations_col, self._articulations):
             assert art_col.name == art.name, f"{art_col.name=} {art.name=} "
@@ -371,6 +371,9 @@ class GraspingEnv(BaseEnv):
             art_col.qvel = np.zeros(art.dof)
             art_col.qacc = np.zeros(art.dof)
             art_col.qf = np.zeros(art.dof)
+            for j_col, q in zip(art_col.active_joints, art.qpos):
+                j_col.drive_target = q
+                j_col.drive_velocity_target = 0.0
         for e_col, e in zip(self._actors_col, self._actors):
             if e_col.name == "ground":
                 continue
