@@ -443,3 +443,7 @@ class RecordEpisodeOnError(gym.Wrapper):
 
         h5_file.close()
         print(f"Saved trajectory on error at {self._save_h5_path}")
+
+    def get_state(self) -> np.ndarray:
+        """Get environment state. No contacts state (unequal length)"""
+        return s["sim"] if isinstance(s := self.env.get_state(), dict) else s

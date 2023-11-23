@@ -573,9 +573,12 @@ class GraspingEnv(BaseEnv):
         """Get environment state. Override to include task information (e.g., goal)"""
         return dict(sim=self.get_sim_state(), contacts=self.get_contacts_state())
 
-    def set_state(self, state: dict):
+    def set_state(self, state: Union[dict, np.ndarray]):
         """Set environment state. Override to include task information (e.g., goal)"""
-        return self.set_sim_state(state["sim"])
+        if isinstance(state, dict):
+            return self.set_sim_state(state["sim"])
+        else:
+            return self.set_sim_state(state)
 
     # -------------------------------------------------------------------------- #
     # Visualization
