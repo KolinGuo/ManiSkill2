@@ -140,8 +140,8 @@ class PickCubeTurntableEnv(GraspingEnv):
             #     super()._initialize_agent()  # reset robot qpos and base_pose
             # else:
             #     raise RuntimeError(
-            #         "Cannot sample layout with valid goal grasp pose.\n"
-            #         f"Env state: {self.get_state().tolist()}"
+            #         "Cannot sample layout with valid goal grasp pose "
+            #         f"(seed={self._episode_seed})"
             #     )
             # NOTE: tcp_goal_pos is always feasible
             # assert self._check_feasible_grasp_pose(self.tcp_goal_pos), \
@@ -269,7 +269,7 @@ class PickCubeTurntableEnv(GraspingEnv):
         #     ).p
         # else:
         #     raise RuntimeError("Cannot sample valid goal grasp pose.\n"
-        #                        f"Env state: {self.get_state().tolist()}")
+        #                        f"Env state: {self.get_state()}")
 
         # ----- Move TCP to goal_pos via set_action ----- #
         # total_ending_steps = 0
@@ -306,39 +306,55 @@ class PickCubeTurntableEnv(GraspingEnv):
         self.agent.robot.set_arm_target(qpos[:7])
         self.agent.robot.set_gripper_target(-0.01)
 
-        env_start_state = self.get_state().tolist()
+        env_state_traj = [self.get_state()]
         total_ending_steps = 0
         for _ in range(100):
             self.step_action(None)
             total_ending_steps += 1
+            env_state_traj.append(self.get_state())
 
             if np.linalg.norm(self.tcp_goal_pos - self.tcp.pose.p) <= 1e-3:  # 1mm
                 break
         else:
+            self._env_info_on_error = dict(
+                env_state_traj=env_state_traj,
+                ik_qpos=qpos,
+                ik_success=success,
+                ik_error=error,
+                total_ending_steps=total_ending_steps,
+            )
             raise RuntimeError(
                 f"Took too long to reach {self.tcp_goal_pos=} "
-                f"(seed={self._episode_seed}, {env_start_state=}, {qpos=}, "
-                f"env_end_state={self.get_state().tolist()})"
+                f"(seed={self._episode_seed})"
             )
 
         # ----- Hold TCP static at goal_pos ----- #
         assert self.control_mode == "pd_ee_delta_pose", f"Wrong {self.control_mode=}"
 
-        env_start_state = self.get_state().tolist()
+        env_start_state_idx = len(env_state_traj)
+        env_state_traj.append(self.get_state())
         ending_static_steps = 0
         for _ in range(100):
             action = np.asarray([0] * 6 + [-1], dtype=np.float32)
             self.step_action(action)
             total_ending_steps += 1
             ending_static_steps += 1
+            env_state_traj.append(self.get_state())
 
             if self.check_robot_static():
                 break
         else:
+            self._env_info_on_error = dict(
+                env_start_state_idx=env_start_state_idx,
+                env_state_traj=env_state_traj,
+                ik_qpos=qpos,
+                ik_success=success,
+                ik_error=error,
+                total_ending_steps=total_ending_steps,
+                ending_static_steps=ending_static_steps,
+            )
             raise RuntimeError(
-                "Took too long to stop robot"
-                f"(seed={self._episode_seed}, {env_start_state=}, "
-                f"env_end_state={self.get_state().tolist()})"
+                f"Took too long to stop robot (seed={self._episode_seed})"
             )
 
         obs = self.get_obs()

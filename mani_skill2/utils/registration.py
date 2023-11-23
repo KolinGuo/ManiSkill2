@@ -7,6 +7,7 @@ from gym.envs.registration import EnvSpec as GymEnvSpec
 
 from mani_skill2 import logger
 from mani_skill2.envs.sapien_env import BaseEnv
+from mani_skill2.utils.wrappers import RecordEpisodeOnError
 from mani_skill2.utils.wrappers.observation import (
     PointCloudObservationWrapper,
     RGBDObservationWrapper,
@@ -104,6 +105,9 @@ def make(env_id, as_gym=True, enable_segmentation=False, **kwargs):
     # Set observation mode on the wrapper
     if isinstance(env, gym.Wrapper):
         env.obs_mode = obs_mode
+
+    # Record trajectory on RuntimeError for a single episode
+    env = RecordEpisodeOnError(env)
 
     # Compatible with gym.make
     if as_gym:

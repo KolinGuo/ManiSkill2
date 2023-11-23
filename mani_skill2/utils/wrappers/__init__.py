@@ -1,1 +1,1 @@
-from .record import RecordEpisode
+from .record import RecordEpisode, RecordEpisodeOnError

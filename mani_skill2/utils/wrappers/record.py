@@ -1,4 +1,5 @@
 import copy
+import os
 import time
 from pathlib import Path
 
@@ -330,3 +331,115 @@ class RecordEpisode(gym.Wrapper):
             if self.save_on_reset:
                 self.flush_video(ignore_empty_transition=True)
         return super().close()
+
+
+class RecordEpisodeOnError(gym.Wrapper):
+    """Record trajectory on Error for a single episode.
+    If no Error occurs, no trajectory is saved.
+    The trajectories are stored in HDF5.
+
+    Args:
+        env: gym.Env
+        output_dir: output directory
+        save_trajectory: whether to save trajectory
+        trajectory_name: name of trajectory file (.h5). Use timestamp if not provided.
+    """
+
+    def __init__(
+        self,
+        env,
+        output_dir=os.getenv("log_dir", default=Path.home()),
+        trajectory_name="env_traj_on_error",
+        save_obs=False,
+    ):
+        super().__init__(env)
+
+        self._output_dir = Path(output_dir)
+        self._save_obs = save_obs
+
+        self._episode_data = []
+        self._episode_info = {}
+
+        self._save_h5_path = (
+            self._output_dir / f'{trajectory_name}_{time.strftime("%Y%m%d_%H%M%S")}.h5'
+        )
+
+        # Avoid circular import
+        from mani_skill2.envs.mpm.base_env import MPMBaseEnv
+
+        if isinstance(env.unwrapped, MPMBaseEnv):
+            self._init_state_only = True
+            logger.info("Soft-body (MPM) environment detected, record init_state only")
+        else:
+            self._init_state_only = False
+
+    def reset(self, **kwargs):
+        # Clear cache
+        self._episode_data = []
+        self._episode_info = {}
+
+        reset_kwargs = copy.deepcopy(kwargs)
+        obs = super().reset(**kwargs)
+
+        state = self.env.get_state()
+        step_data = dict(
+            env_state=state, action=None, reward=None, done=None, info=None
+        )
+        if self._save_obs:
+            step_data["obs"] = obs
+        if self._init_state_only:
+            step_data["env_init_state"] = step_data.pop("env_state")
+
+        self._episode_data.append(step_data)
+        self._episode_info.update(
+            episode_seed=getattr(self.unwrapped, "_episode_seed", None),
+            reset_kwargs=reset_kwargs,
+            control_mode=getattr(self.unwrapped, "control_mode", None),
+            elapsed_steps=0,
+        )
+
+        return obs
+
+    def step(self, action):
+        try:
+            obs, rew, done, info = super().step(action)
+        except RuntimeError as e:
+            self.flush_trajectory_on_error()
+            raise e
+
+        step_data = dict(
+            action=action, reward=rew, done=done, info=info
+        )
+        if self._save_obs:
+            step_data["obs"] = obs
+        if not self._init_state_only:
+            step_data["env_state"] = self.env.get_state()
+
+        self._episode_data.append(step_data)
+        self._episode_info["elapsed_steps"] += 1
+
+        return obs, rew, done, info
+
+    def flush_trajectory_on_error(self):
+        assert len(self._episode_data) > 0, f"No episode data: {self._episode_data=}"
+
+        from pyrl.utils.data import GDict  # used to dump_hdf5
+
+        self._output_dir.mkdir(parents=True, exist_ok=True)
+        h5_file = h5py.File(self._save_h5_path, "w")
+
+        meta_info = dict(
+            commit_info=get_commit_info(),
+        )
+        GDict(meta_info).to_hdf5(h5_file.create_group("meta"))
+        GDict(parse_env_info(self.env)).to_hdf5(h5_file.create_group("env_info"))
+
+        GDict(self._episode_info).to_hdf5(h5_file.create_group("episode_info"))
+        GDict(self._episode_data).to_hdf5(h5_file.create_group("traj"))
+
+        # Store _env_info_on_error
+        if (info_on_error := getattr(self.unwrapped, "_env_info_on_error", None)):
+            GDict(info_on_error).to_hdf5(h5_file.create_group("env_info_on_error"))
+
+        h5_file.close()
+        print(f"Saved trajectory on error at {self._save_h5_path}")

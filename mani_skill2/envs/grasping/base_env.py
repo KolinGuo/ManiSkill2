@@ -1,5 +1,5 @@
 from collections import OrderedDict
-from typing import Tuple, Type, Union
+from typing import Tuple, Type, Union, List, Dict
 
 import cv2
 import numpy as np
@@ -372,8 +372,8 @@ class GraspingEnv(BaseEnv):
             art_col.qacc = np.zeros(art.dof)
             art_col.qf = np.zeros(art.dof)
             for j_col, q in zip(art_col.active_joints, art.qpos):
-                j_col.drive_target = q
-                j_col.drive_velocity_target = 0.0
+                j_col.set_drive_target(q)
+                j_col.set_drive_velocity_target(0.0)
         for e_col, e in zip(self._actors_col, self._actors):
             if e_col.name == "ground":
                 continue
@@ -547,6 +547,35 @@ class GraspingEnv(BaseEnv):
         super()._setup_viewer()
         self._viewer.set_camera_xyz(0.8, 0, 1.0)
         self._viewer.set_camera_rpy(0, -0.5, 3.14)
+
+    # -------------------------------------------------------------------------- #
+    # Simulation state (for restoring environment)
+    # -------------------------------------------------------------------------- #
+    def get_contacts_state(self) -> List[Dict[str, list]]:
+        """Get environment contacts state"""
+        contacts_state = []
+        for contact in self._scene.get_contacts():
+            contacts_state.append({
+                "entity_ids": [c.entity.per_scene_id for c in contact.components],
+                "points": [
+                    dict(
+                        position=point.position,
+                        impulse=point.impulse,
+                        normal=point.normal,
+                        separation=point.separation,
+                    )
+                    for point in contact.points
+                ],
+            })
+        return contacts_state
+
+    def get_state(self) -> dict:
+        """Get environment state. Override to include task information (e.g., goal)"""
+        return dict(sim=self.get_sim_state(), contacts=self.get_contacts_state())
+
+    def set_state(self, state: dict):
+        """Set environment state. Override to include task information (e.g., goal)"""
+        return self.set_sim_state(state["sim"])
 
     # -------------------------------------------------------------------------- #
     # Visualization
