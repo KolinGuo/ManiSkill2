@@ -120,7 +120,7 @@ class PickCubeTurntableEnv(GraspingEnv):
                 return True
         return False
 
-    def _initialize_agent(self, max_trials=50):
+    def _initialize_agent(self, max_trials=100):
         super()._initialize_agent()
 
         # Reset camera pose to original
@@ -149,7 +149,7 @@ class PickCubeTurntableEnv(GraspingEnv):
 
             # Ensure init_ee_pose is feasible
             #   and all objects are visible in at least one orig camera view
-            for _ in range(5):
+            for _ in range(10):
                 if (
                     self._check_feasible_grasp_pose(self.cube.pose.p)
                     and self._sample_tcp_pose()
@@ -168,7 +168,7 @@ class PickCubeTurntableEnv(GraspingEnv):
             # Randomize camera pose while ensuring
             #   all objects are visible in at least one camera view
             if (self.use_random_camera_pose and not self.random_camera_pose_per_step):
-                for _ in range(max_trials):
+                for _ in range(20):
                     self._randomize_camera_pose()
                     if self._check_object_visible():
                         break
