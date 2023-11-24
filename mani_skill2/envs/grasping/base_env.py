@@ -41,6 +41,7 @@ class GraspingEnv(BaseEnv):
                  robot_init_qpos_noise=0.02,
                  image_obs_mode=None,
                  image_obs_shape=(128, 128),
+                 gamma=0.95,  # for compute_final_reward()
                  check_collision_during_IK=True,
                  no_agent_obs=False,
                  no_agent_qvel_obs=False,
@@ -64,6 +65,7 @@ class GraspingEnv(BaseEnv):
             raise NotImplementedError(f"Unsupported image obs mode: {image_obs_mode}")
         self._image_obs_mode = image_obs_mode
         self.image_obs_shape = image_obs_shape
+        self.gamma = gamma
 
         self.check_collision_during_IK = check_collision_during_IK
 

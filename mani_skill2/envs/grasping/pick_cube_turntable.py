@@ -223,15 +223,15 @@ class PickCubeTurntableEnv(GraspingEnv):
     def compute_final_reward(self, obs, info) -> float:
         """Computes the final reward after performing ending manipulation trajectory"""
         if info["success"]:
-            return 5.0
+            return 5.0 / (1 - self.gamma)
         else:
-            return 3.0
+            return 3.0 / (1 - self.gamma)
 
     def compute_normalized_dense_reward(self, **kwargs):
-        return self.compute_dense_reward(**kwargs) / 5.0
+        return self.compute_dense_reward(**kwargs) / 2.0
 
     def compute_normalized_final_reward(self, **kwargs):
-        return self.compute_final_reward(**kwargs) / 5.0
+        return self.compute_final_reward(**kwargs) / 2.0
 
     # ---------------------------------------------------------------------- #
     # Step
