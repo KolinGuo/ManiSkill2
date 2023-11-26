@@ -3,10 +3,10 @@ import os
 import time
 from pathlib import Path
 
-import gym
+import gymnasium as gym
 import h5py
 import numpy as np
-from gym import spaces
+from gymnasium import spaces
 
 from mani_skill2 import get_commit_info, logger
 
@@ -85,7 +85,6 @@ class RecordEpisode(gym.Wrapper):
         save_trajectory: whether to save trajectory
         trajectory_name: name of trajectory file (.h5). Use timestamp if not provided.
         save_video: whether to save video
-        render_mode: rendering mode passed to `env.render`
         save_on_reset: whether to save the previous trajectory automatically when resetting.
             If True, the trajectory with empty transition will be ignored automatically.
         clean_on_close: whether to rename and prune trajectories when closed.
@@ -100,7 +99,6 @@ class RecordEpisode(gym.Wrapper):
         trajectory_name=None,
         save_video=True,
         info_on_video=False,
-        render_mode="rgb_array",
         save_on_reset=True,
         clean_on_close=True,
     ):
@@ -134,7 +132,6 @@ class RecordEpisode(gym.Wrapper):
 
         self.save_video = save_video
         self.info_on_video = info_on_video
-        self.render_mode = render_mode
         self._render_images = []
 
         # Avoid circular import
@@ -161,11 +158,19 @@ class RecordEpisode(gym.Wrapper):
         self._render_images = []
 
         reset_kwargs = copy.deepcopy(kwargs)
-        obs = super().reset(**kwargs)
+        obs, info = super().reset(**kwargs)
 
         if self.save_trajectory:
             state = self.env.get_state()
-            data = dict(s=state, o=obs, a=None, r=None, done=None, info=None)
+            data = dict(
+                s=state,
+                o=obs,
+                a=None,
+                r=None,
+                terminated=None,
+                truncated=None,
+                info=info,
+            )
             self._episode_data.append(data)
             self._episode_info.update(
                 episode_id=self._episode_id,
@@ -176,23 +181,31 @@ class RecordEpisode(gym.Wrapper):
             )
 
         if self.save_video:
-            self._render_images.append(self.env.render(self.render_mode))
+            self._render_images.append(self.env.render())
 
-        return obs
+        return obs, info
 
     def step(self, action):
-        obs, rew, done, info = super().step(action)
+        obs, rew, terminated, truncated, info = super().step(action)
         self._elapsed_steps += 1
 
         if self.save_trajectory:
             state = self.env.get_state()
-            data = dict(s=state, o=obs, a=action, r=rew, done=done, info=info)
+            data = dict(
+                s=state,
+                o=obs,
+                a=action,
+                r=rew,
+                terminated=terminated,
+                truncated=truncated,
+                info=info,
+            )
             self._episode_data.append(data)
             self._episode_info["elapsed_steps"] += 1
             self._episode_info["info"] = info
 
         if self.save_video:
-            image = self.env.render(self.render_mode)
+            image = self.env.render()
 
             if self.info_on_video:
                 scalar_info = extract_scalars_from_info(info)
@@ -204,7 +217,7 @@ class RecordEpisode(gym.Wrapper):
 
             self._render_images.append(image)
 
-        return obs, rew, done, info
+        return obs, rew, terminated, truncated, info
 
     def flush_trajectory(self, verbose=False, ignore_empty_transition=False):
         if not self.save_trajectory or len(self._episode_data) == 0:
@@ -379,11 +392,16 @@ class RecordEpisodeOnError(gym.Wrapper):
         self._episode_info = {}
 
         reset_kwargs = copy.deepcopy(kwargs)
-        obs = super().reset(**kwargs)
+        obs, info = super().reset(**kwargs)
 
-        state = self.env.get_state()
+        state = self.env.unwrapped.get_state()
         step_data = dict(
-            env_state=state, action=None, reward=None, done=None, info=None
+            env_state=state,
+            action=None,
+            reward=None,
+            terminated=None,
+            truncated=None,
+            info=info,
         )
         if self._save_obs:
             step_data["obs"] = obs
@@ -398,27 +416,31 @@ class RecordEpisodeOnError(gym.Wrapper):
             elapsed_steps=0,
         )
 
-        return obs
+        return obs, info
 
     def step(self, action):
         try:
-            obs, rew, done, info = super().step(action)
+            obs, rew, terminated, truncated, info = super().step(action)
         except RuntimeError as e:
             self.flush_trajectory_on_error()
             raise e
 
         step_data = dict(
-            action=action, reward=rew, done=done, info=info
+            action=action,
+            reward=rew,
+            terminated=terminated,
+            truncated=truncated,
+            info=info,
         )
         if self._save_obs:
             step_data["obs"] = obs
         if not self._init_state_only:
-            step_data["env_state"] = self.env.get_state()
+            step_data["env_state"] = self.env.unwrapped.get_state()
 
         self._episode_data.append(step_data)
         self._episode_info["elapsed_steps"] += 1
 
-        return obs, rew, done, info
+        return obs, rew, terminated, truncated, info
 
     def flush_trajectory_on_error(self):
         assert len(self._episode_data) > 0, f"No episode data: {self._episode_data=}"
@@ -446,4 +468,4 @@ class RecordEpisodeOnError(gym.Wrapper):
 
     def get_state(self) -> np.ndarray:
         """Get environment state. No contacts state (unequal length)"""
-        return s["sim"] if isinstance(s := self.env.get_state(), dict) else s
+        return s["sim"] if isinstance(s := self.env.unwrapped.get_state(), dict) else s

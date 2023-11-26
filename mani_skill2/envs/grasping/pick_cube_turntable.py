@@ -1,4 +1,5 @@
 from collections import OrderedDict
+from typing import Any, SupportsFloat
 
 import numpy as np
 import sapien.physx as physx
@@ -202,7 +203,6 @@ class PickCubeTurntableEnv(GraspingEnv):
             for cam_name, cam_obs in obs["image"].items():
                 seg_obs = cam_obs.pop("Segmentation")
                 cam_obs["obj_mask"] = seg_obs[..., [1]] == self.cube.per_scene_id
-            obs = resize_obs_images(obs, self.image_obs_shape)
         return obs
 
     # ---------------------------------------------------------------------- #
@@ -227,10 +227,10 @@ class PickCubeTurntableEnv(GraspingEnv):
         else:
             return 3.0 / (1 - self.gamma)
 
-    def compute_normalized_dense_reward(self, **kwargs):
+    def compute_normalized_dense_reward(self, **kwargs) -> float:
         return self.compute_dense_reward(**kwargs) / 2.0
 
-    def compute_normalized_final_reward(self, **kwargs):
+    def compute_normalized_final_reward(self, **kwargs) -> float:
         return self.compute_final_reward(**kwargs) / 2.0
 
     # ---------------------------------------------------------------------- #
@@ -240,7 +240,7 @@ class PickCubeTurntableEnv(GraspingEnv):
         """For simulating dynamic scene, called inside `step_action()`"""
         self._update_turntable_actor()
 
-    def execute_ending_action(self) -> tuple:
+    def execute_ending_action(self) -> tuple[dict, SupportsFloat, bool, dict[str, Any]]:
         """Performs ending manipulation trajectory after policy outputs finish signal
         If object is not grasped at the start of this function, no ending action
             will be executed. Reward is from compute_normalized_dense_reward()

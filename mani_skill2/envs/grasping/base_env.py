@@ -1,13 +1,14 @@
+from __future__ import annotations
+
 from collections import OrderedDict
-from typing import Tuple, Type, Union, List, Dict
+from typing import Any, SupportsFloat, Type
 
 import cv2
 import numpy as np
 import sapien
 import sapien.physx as physx
-from gym import spaces
+from gymnasium import spaces
 from sapien import Pose
-from sapien.utils import Viewer
 from transforms3d.euler import euler2quat
 
 from mani_skill2.agents.base_agent import BaseAgent
@@ -20,6 +21,7 @@ from mani_skill2.agents.robots.xarm import (
 from mani_skill2.agents.utils import get_active_joint_indices
 from mani_skill2.envs.sapien_env import BaseEnv
 from mani_skill2.sensors.camera import CameraConfig
+from mani_skill2.utils.camera import resize_obs_images
 from mani_skill2.utils.sapien_utils import (
     set_articulation_render_material,
     vectorize_pose,
@@ -34,7 +36,15 @@ class GraspingEnv(BaseEnv):
     SUPPORTED_OBS_MODES = ("depth_mask", "image",)
     SUPPORTED_IMAGE_OBS_MODES = ("hand", "hand_front")
     SUPPORTED_REWARD_MODES = ("normalized_dense", "dense", "sparse")
-    agent: Union[XArm7, XArm7D435, FloatingXArm, FloatingXArmD435]
+
+    metadata: dict[str, Any] = BaseEnv.metadata | {
+        "robots": SUPPORTED_ROBOTS,
+        "obs_modes": SUPPORTED_OBS_MODES,
+        "image_obs_modes": SUPPORTED_IMAGE_OBS_MODES,
+        "reward_modes": SUPPORTED_REWARD_MODES,
+    }
+
+    agent: XArm7 | XArm7D435 | FloatingXArm | FloatingXArmD435
 
     def __init__(self, *args,
                  robot="xarm7_d435",
@@ -83,15 +93,10 @@ class GraspingEnv(BaseEnv):
 
         super().__init__(*args, **kwargs)
 
-        # Update action_space and observation_space
+        # Update action_space
         self.action_space = spaces.Tuple([
             self.agent.action_space, spaces.Discrete(2)  # {0, 1}
         ])
-        if self._obs_mode == "image":
-            image_obs_space = self.observation_space.spaces["image"]
-            for cam_name in image_obs_space:
-                for space in image_obs_space[cam_name].spaces.values():
-                    space.shape = image_obs_shape + space.shape[2:]
 
     # ---------------------------------------------------------------------- #
     # Load object models
@@ -332,11 +337,12 @@ class GraspingEnv(BaseEnv):
     # ---------------------------------------------------------------------- #
     # Reset
     # ---------------------------------------------------------------------- #
-    def reset(self, seed=None, reconfigure=False):
-        self.set_episode_rng(seed)
+    def reset(
+        self, *, seed: int | None = None, reconfigure: bool = False, **kwargs
+    ) -> tuple[dict, dict[str, Any]]:
+        self._set_episode_rng(seed)
 
-        obs = super().reset(seed=self._episode_seed, reconfigure=reconfigure)
-        return obs
+        return super().reset(seed=self._episode_seed, reconfigure=reconfigure, **kwargs)
 
     # ---------------------------------------------------------------------- #
     # Helpful functions
@@ -461,6 +467,14 @@ class GraspingEnv(BaseEnv):
     # ---------------------------------------------------------------------- #
     # Observation
     # ---------------------------------------------------------------------- #
+    def get_obs(self) -> OrderedDict:
+        """Wrapper for get_obs()"""
+        obs = super().get_obs()
+
+        if self._obs_mode == "image":
+            obs = resize_obs_images(obs, self.image_obs_shape)
+        return obs
+
     def _get_obs_agent(self) -> OrderedDict:
         if self.no_agent_obs:
             return OrderedDict()
@@ -479,7 +493,9 @@ class GraspingEnv(BaseEnv):
     # -------------------------------------------------------------------------- #
     # Step
     # -------------------------------------------------------------------------- #
-    def step(self, action: Union[None, np.ndarray, Tuple[np.ndarray, int]]):
+    def step(
+        self, action: None | np.ndarray | tuple[np.ndarray, int]
+    ) -> tuple[dict, SupportsFloat, bool, bool, dict[str, Any]]:
         """Last dimension of action is a discrete finish indicator (1 is finished)"""
         self._elapsed_steps += 1
 
@@ -493,18 +509,18 @@ class GraspingEnv(BaseEnv):
                 f"finish_action must be int, got {finish_action=}"
 
         if finish_action == 1:
-            obs, reward, done, info = self.execute_ending_action()
+            obs, reward, terminated, info = self.execute_ending_action()
         else:
             self.step_action(agent_action)
             obs = self.get_obs()
             info = self.get_info(obs=obs)
             reward = self.get_reward(obs=obs, action=action, info=info)
-            done = self.get_done(obs=obs, info=info)
+            terminated = bool(info["success"])
 
         info["finish_action"] = finish_action
-        return obs, reward, done, info
+        return obs, reward, terminated, False, info
 
-    def execute_ending_action(self) -> tuple:
+    def execute_ending_action(self) -> tuple[dict, SupportsFloat, bool, dict[str, Any]]:
         """Performs ending manipulation trajectory after policy outputs finish signal
         If object is not grasped at the start of this function, no ending action
             will be executed. Reward is from compute_normalized_dense_reward()
@@ -513,14 +529,14 @@ class GraspingEnv(BaseEnv):
         """
         raise NotImplementedError("Need to implement execute_ending_action")
 
-    def compute_final_reward(self, obs, info):
+    def compute_final_reward(self, obs, info) -> float:
         """Computes the final reward after performing ending manipulation trajectory"""
         raise NotImplementedError("Need to implement compute_final_reward")
 
-    def compute_normalized_final_reward(self, **kwargs):
+    def compute_normalized_final_reward(self, **kwargs) -> float:
         raise NotImplementedError("Need to implement compute_normalized_final_reward")
 
-    def step_action(self, action, **kwargs):
+    def step_action(self, action: None | np.ndarray | tuple[np.ndarray, int]) -> None:
         if action is None:  # simulation without action
             pass
         elif isinstance(action, np.ndarray):
@@ -553,7 +569,7 @@ class GraspingEnv(BaseEnv):
     # -------------------------------------------------------------------------- #
     # Simulation state (for restoring environment)
     # -------------------------------------------------------------------------- #
-    def get_contacts_state(self) -> List[Dict[str, list]]:
+    def get_contacts_state(self) -> list[dict[str, list]]:
         """Get environment contacts state"""
         contacts_state = []
         for contact in self._scene.get_contacts():
@@ -575,7 +591,7 @@ class GraspingEnv(BaseEnv):
         """Get environment state. Override to include task information (e.g., goal)"""
         return dict(sim=self.get_sim_state(), contacts=self.get_contacts_state())
 
-    def set_state(self, state: Union[dict, np.ndarray]):
+    def set_state(self, state: dict | np.ndarray):
         """Set environment state. Override to include task information (e.g., goal)"""
         if isinstance(state, dict):
             return self.set_sim_state(state["sim"])
@@ -585,44 +601,22 @@ class GraspingEnv(BaseEnv):
     # -------------------------------------------------------------------------- #
     # Visualization
     # -------------------------------------------------------------------------- #
-    def render(self, mode="human", **kwargs):
+    def render_cameras(self) -> np.ndarray | None:
+        """Render function when render_mode='cameras'"""
+        images = []
+        if len(self._render_cameras) > 0:
+            images = [
+                cv2.resize(
+                    self.render_rgb_array(),
+                    (384, 384),  # (W, H)
+                    interpolation=cv2.INTER_NEAREST_EXACT,
+                )
+            ]
         self.update_render()
-        if mode == "human":
-            if self._viewer is None:
-                self._viewer: Viewer = Viewer(self._renderer)
-                self._setup_viewer()
-            self._viewer.render()
-            return self._viewer
-        elif mode == "rgb_array":
-            images = []
-            cameras = self._render_cameras if len(self._render_cameras) > 0 \
-                else self._cameras
-            for camera in cameras.values():
-                rgba = camera.get_images(take_picture=True)["Color"]
-                rgb = np.clip(rgba[..., :3] * 255, 0, 255).astype(np.uint8)
-                images.append(rgb)
-            if len(images) == 1:
-                return images[0]
-            return tile_images(images)
-        elif mode == "cameras":
-            if len(self._render_cameras) > 0:
-                images = [
-                    cv2.resize(
-                        self.render("rgb_array"),
-                        (384, 384),  # (W, H)
-                        interpolation=cv2.INTER_NEAREST_EXACT,
-                    )
-                ]
-            else:
-                images = []
-
-            # NOTE(jigu): Must update renderer again
-            # since some visual-only sites like goals should be hidden.
-            self.update_render()
-            self.take_picture()
-            cameras_images = self.get_obs()["image"]
-            for camera_images in cameras_images.values():
-                images.extend(observations_to_images(camera_images))
-            return tile_images(images)
-        else:
-            raise NotImplementedError(f"Unsupported render mode {mode}.")
+        self.take_picture()
+        cameras_images = self.get_obs()["image"]
+        for camera_images in cameras_images.values():
+            images.extend(observations_to_images(camera_images))
+        if len(images) == 0:
+            return None
+        return tile_images(images)

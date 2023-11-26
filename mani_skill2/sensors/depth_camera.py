@@ -4,7 +4,7 @@ from typing import Dict
 import numpy as np
 import sapien
 import sapien.physx as physx
-from gym import spaces
+from gymnasium import spaces
 # TODO: sapien3 StereoDepthSensor is yet to come
 # from sapien.sensor import StereoDepthSensor, StereoDepthSensorConfig
 

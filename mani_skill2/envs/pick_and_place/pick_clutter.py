@@ -14,7 +14,7 @@ from mani_skill2.utils.registration import register_env
 from mani_skill2.utils.sapien_utils import (
     look_at,
     set_entity_visibility,
-    vectorize_pose
+    vectorize_pose,
 )
 
 from .base_env import StationaryManipulationEnv
@@ -65,7 +65,7 @@ class PickClutterEnv(StationaryManipulationEnv):
         super().__init__(**kwargs)
 
     def _load_actors(self):
-        self._add_ground(render=self.bg_name is None)
+        self._add_ground(render=self._bg_name is None)
 
         self.objs: List[sapien.Entity] = []
         self.bbox_sizes = []
@@ -90,7 +90,7 @@ class PickClutterEnv(StationaryManipulationEnv):
         raise NotImplementedError
 
     def reset(self, seed=None, reconfigure=False, episode_idx=None):
-        self.set_episode_rng(seed)
+        self._set_episode_rng(seed)
         _reconfigure = self._set_episode(episode_idx)
         reconfigure = _reconfigure or reconfigure
         return super().reset(seed=self._episode_seed, reconfigure=reconfigure)
@@ -233,15 +233,22 @@ class PickClutterEnv(StationaryManipulationEnv):
         cam_cfg.pose = look_at([0.3, 0, 1.0], [0.0, 0.0, 0.5])
         return cam_cfg
 
-    def render(self, mode="human"):
-        if mode in ["human", "rgb_array"]:
-            set_entity_visibility(self.target_site, 0.8)
-            set_entity_visibility(self.goal_site, 0.5)
-            ret = super().render(mode=mode)
-            set_entity_visibility(self.target_site, 0)
-            set_entity_visibility(self.goal_site, 0)
-        else:
-            ret = super().render(mode=mode)
+    def render_human(self) -> None:
+        """Render function when render_mode='human'"""
+        set_entity_visibility(self.target_site, 0.8)
+        set_entity_visibility(self.goal_site, 0.5)
+        ret = super().render_human()
+        set_entity_visibility(self.target_site, 0)
+        set_entity_visibility(self.goal_site, 0)
+        return ret
+
+    def render_rgb_array(self) -> np.ndarray | None:
+        """Render function when render_mode='rgb_array'"""
+        set_entity_visibility(self.target_site, 0.8)
+        set_entity_visibility(self.goal_site, 0.5)
+        ret = super().render_rgb_array()
+        set_entity_visibility(self.target_site, 0)
+        set_entity_visibility(self.goal_site, 0)
         return ret
 
     def get_state(self) -> np.ndarray:

@@ -42,7 +42,7 @@ class TurnFaucetBaseEnv(BaseEnv):
         super().__init__(*args, **kwargs)
 
     def _load_actors(self):
-        self._add_ground(render=self.bg_name is None)
+        self._add_ground(render=self._bg_name is None)
 
     def _configure_agent(self):
         agent_cls = self.SUPPORTED_ROBOTS[self.robot_uid]
@@ -144,7 +144,7 @@ class TurnFaucetEnv(TurnFaucetBaseEnv):
         )
 
     def reset(self, seed=None, reconfigure=False, model_id=None, model_scale=None):
-        self.set_episode_rng(seed)
+        self._set_episode_rng(seed)
         _reconfigure = self._set_model(model_id, model_scale)
         reconfigure = _reconfigure or reconfigure
         ret = super().reset(seed=self._episode_seed, reconfigure=reconfigure)

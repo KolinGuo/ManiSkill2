@@ -2,9 +2,9 @@
 
 import numpy as np
 from transforms3d.quaternions import axangle2quat
-import gym
-from gym.utils import seeding
-from gym import spaces
+import gymnasium as gym
+from gymnasium.utils import seeding
+from gymnasium import spaces
 
 import sapien
 from sapien import Pose
@@ -183,9 +183,8 @@ class CartPoleSwingUpEnv(TestSapienEnv):
             theta -= np.pi * 2
         success = -self.theta_threshold <= theta <= self.theta_threshold
 
-        done = False
-
-        return obs, reward, done, {"success": success}
+        terminated = False
+        return obs, reward, terminated, False, {"success": success}
 
     def reset(self):
         self.cartpole.set_qpos([0, np.pi])
@@ -252,12 +251,12 @@ def main():
         # env.render(mode="human")
         action = env.action_space.sample()
         t = time.time()
-        obs, reward, done, info = env.step(action)
+        obs, reward, terminated, truncated, info = env.step(action)
         sim_time += time.time() - t
         t = time.time()
         env.render("rgbd")
         render_time += time.time() - t
-        if done:
+        if terminated or truncated:
             obs = env.reset()
 
     print("Num steps:", num_steps)

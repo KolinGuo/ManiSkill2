@@ -1,6 +1,6 @@
 from functools import partial
 
-import gym
+import gymnasium as gym
 import numpy as np
 import torch
 from stable_baselines3.common.vec_env import SubprocVecEnv
@@ -56,10 +56,17 @@ def test_obs_mode(obs_mode="image"):
             actions = [ms2_env.action_space.sample() for _ in range(n_envs)]
 
             sb3_obs, sb3_rews, sb3_dones, sb3_infos = sb3_env.step(actions)
-            ms2_obs, ms2_rews, ms2_dones, ms2_infos = ms2_env.step(actions)
+            (
+                ms2_obs,
+                ms2_rews,
+                ms2_terminations,
+                ms2_truncations,
+                ms2_infos,
+            ) = ms2_env.step(actions)
 
             check_fn(sb3_obs, ms2_obs)
             np.testing.assert_allclose(sb3_rews, ms2_rews)
+            np.testing.assert_equal(sb3_dones, ms2_terminations | ms2_truncations)
 
     sb3_env.close()
     ms2_env.close()

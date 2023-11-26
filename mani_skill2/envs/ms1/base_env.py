@@ -83,7 +83,7 @@ class MS1BaseEnv(BaseEnv):
 
     def reset(self, seed=None, reconfigure=False, model_id=None):
         self._prev_actor_pose = None
-        self.set_episode_rng(seed)
+        self._set_episode_rng(seed)
         _reconfigure = self._set_model(model_id)
         reconfigure = _reconfigure or reconfigure
         ret = super().reset(seed=self._episode_seed, reconfigure=reconfigure)
@@ -112,7 +112,7 @@ class MS1BaseEnv(BaseEnv):
         cg[2] = cg[2] | 1 << 30
         cs.set_collision_groups(*cg)
 
-        if self.bg_name is None:
+        if self._bg_name is None:
             # Create a visual ground box
             rend_mtl = self._renderer.create_material()
             rend_mtl.base_color = [0.06, 0.08, 0.12, 1]

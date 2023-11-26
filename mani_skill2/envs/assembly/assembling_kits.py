@@ -38,7 +38,7 @@ class AssemblingKitsEnv(StationaryManipulationEnv):
         super().__init__(**kwargs)
 
     def reset(self, seed=None, episode_idx=None, reconfigure=False, **kwargs):
-        self.set_episode_rng(seed)
+        self._set_episode_rng(seed)
 
         if episode_idx is None:
             episode_idx = self._episode_rng.randint(len(self._episodes))
@@ -102,7 +102,7 @@ class AssemblingKitsEnv(StationaryManipulationEnv):
         return builder.build(f"obj_{object_id:02d}")
 
     def _load_actors(self):
-        self._add_ground(render=self.bg_name is None)
+        self._add_ground(render=self._bg_name is None)
 
         self.kit = self._load_kit()
         self.obj = self._load_object(self.object_id)

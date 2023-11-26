@@ -4,7 +4,7 @@ from typing import Dict, Sequence
 
 import numpy as np
 import sapien.physx as physx
-from gym import spaces
+from gymnasium import spaces
 
 
 def get_joint_indices(articulation: physx.PhysxArticulation,

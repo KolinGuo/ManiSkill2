@@ -12,11 +12,10 @@ from functools import partial
 from multiprocessing.connection import Connection
 from typing import Callable, Dict, List, Optional, Sequence, Type, Union
 
-import gym
+import gymnasium as gym
 import numpy as np
 import sapien
-from gym import spaces
-from gym.vector.utils.shared_memory import *
+from gymnasium import spaces
 
 try:
     import torch

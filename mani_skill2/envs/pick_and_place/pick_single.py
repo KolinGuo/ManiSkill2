@@ -74,7 +74,7 @@ class PickSingleEnv(StationaryManipulationEnv):
         pass
 
     def _load_actors(self):
-        self._add_ground(render=self.bg_name is None)
+        self._add_ground(render=self._bg_name is None)
         self._load_model()
         obj_comp = self.obj.find_component_by_type(physx.PhysxRigidDynamicComponent)
         obj_comp.set_linear_damping(0.1)
@@ -86,7 +86,7 @@ class PickSingleEnv(StationaryManipulationEnv):
         raise NotImplementedError
 
     def reset(self, seed=None, reconfigure=False, model_id=None, model_scale=None):
-        self.set_episode_rng(seed)
+        self._set_episode_rng(seed)
         _reconfigure = self._set_model(model_id, model_scale)
         reconfigure = _reconfigure or reconfigure
         return super().reset(seed=self._episode_seed, reconfigure=reconfigure)
@@ -378,13 +378,18 @@ class PickSingleEnv(StationaryManipulationEnv):
 
         return reward
 
-    def render(self, mode="human"):
-        if mode in ["human", "rgb_array"]:
-            set_entity_visibility(self.goal_site, 0.5)
-            ret = super().render(mode=mode)
-            set_entity_visibility(self.goal_site, 0.0)
-        else:
-            ret = super().render(mode=mode)
+    def render_human(self) -> None:
+        """Render function when render_mode='human'"""
+        set_entity_visibility(self.goal_site, 0.5)
+        ret = super().render_human()
+        set_entity_visibility(self.goal_site, 0.0)
+        return ret
+
+    def render_rgb_array(self) -> np.ndarray | None:
+        """Render function when render_mode='rgb_array'"""
+        set_entity_visibility(self.goal_site, 0.5)
+        ret = super().render_rgb_array()
+        set_entity_visibility(self.goal_site, 0.0)
         return ret
 
     def get_state(self) -> np.ndarray:

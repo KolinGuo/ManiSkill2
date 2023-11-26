@@ -22,6 +22,9 @@ from .base_env import StationaryManipulationEnv
 
 @register_env("TestCubeSpatial-v0", max_episode_steps=200)
 class TestCubeSpatial(StationaryManipulationEnv):
+    SUPPORTED_RENDER_MODES = ("human", "rgb_array", "cameras",
+                              "depth_array", "seg_array", "pointcloud")
+
     goal_thresh = 0.025
     min_goal_dist = 0.05
 
@@ -37,7 +40,7 @@ class TestCubeSpatial(StationaryManipulationEnv):
         super().__init__(*args, **kwargs)
 
     def _load_actors(self):
-        self._add_ground(render=self.bg_name is None)
+        self._add_ground(render=self._bg_name is None)
         self.cubeA = self._build_cube(self.cube_half_size, color=(1, 0, 0), name="red cube")
         self.cubeB = self._build_cube(self.cube_half_size, color=(0, 1, 0), name="green cube")
         #self.goal_site = self._build_sphere_site(self.goal_thresh)
@@ -190,60 +193,68 @@ class TestCubeSpatial(StationaryManipulationEnv):
         return CameraConfig("render_camera", pose.p, pose.q, 512, 512, 1, 0.01, 10,
                             texture_names=("Color", "Position", "Segmentation"))
 
-    def render(self, mode="human"):
-        if mode in ["human", "rgb_array"]:
-            #self.goal_site.unhide_visual()
-            ret = super().render(mode=mode)
-            #self.goal_site.hide_visual()
-        elif mode == "depth_array":
-            self.update_render()
+    def render_depth_array(self) -> np.ndarray | None:
+        """Render function when render_mode='depth_array'"""
+        self.update_render()
+        images = []
+        for camera in self._render_cameras.values():
+            pos_img = camera.get_images(take_picture=True)["Position"]
+            depth = -pos_img[..., 2]
+            depth_image = (depth * 1000.0).astype(np.uint16)
+            images.append(depth_image)
+        if len(images) == 0:
+            return None
+        if len(images) == 1:
+            return images[0]
+        return tile_images(images)
 
-            images = []
-            for camera in self._render_cameras.values():
-                pos_img = camera.get_images(take_picture=True)["Position"]
-                depth = -pos_img[..., 2]
-                depth_image = (depth * 1000.0).astype(np.uint16)
-                images.append(depth_image)
-            if len(images) == 1:
-                return images[0]
-            return tile_images(images)
-        elif mode == "seg_array":
-            self.update_render()
+    def render_seg_array(self) -> np.ndarray | None:
+        """Render function when render_mode='seg_array'"""
+        self.update_render()
+        images = []
+        for camera in self._render_cameras.values():
+            seg_img = camera.get_images(take_picture=True)["Segmentation"]
+            seg_img = seg_img[..., 1:2]  # actor_seg
+            images.append(seg_img)
+        if len(images) == 0:
+            return None
+        if len(images) == 1:
+            return images[0]
+        return tile_images(images)
 
-            images = []
-            for camera in self._render_cameras.values():
-                seg_img = camera.get_images(take_picture=True)["Segmentation"]
-                seg_img = seg_img[..., 1:2]  # actor_seg
-                images.append(seg_img)
-            if len(images) == 1:
-                return images[0]
-            return tile_images(images)
-        elif mode == "pointcloud":
-            self.update_render()
+    def render_pointcloud(self) -> dict[str, np.ndarray]:
+        """Render function when render_mode='pointcloud'"""
+        self.update_render()
+        pcds = []
+        for camera in self._render_cameras.values():
+            pcd = {}
+            images = camera.get_images(take_picture=True)
 
-            pcds = []
-            for camera in self._render_cameras.values():
-                pcd = {}
-                images = camera.get_images(take_picture=True)
+            # construct pcd
+            pos_depth = images["Position"]
+            mask = pos_depth[..., 3] < 1
+            pcd['rgb'] = images["Color"][:, :, :3][mask]
+            pcd['xyz'] = pos_depth[:, :, :3][mask]
 
-                # construct pcd
-                pos_depth = images["Position"]
-                mask = pos_depth[..., 3] < 1
-                pcd['rgb'] = images["Color"][:, :, :3][mask]
-                pcd['xyz'] = pos_depth[:, :, :3][mask]
+            # Model matrix is the transformation from OpenGL camera space to SAPIEN world space
+            T = camera.camera.get_model_matrix()
+            pcd['xyz'] = pcd['xyz'] @ T[:3, :3].T + T[:3, 3]
 
-                # Model matrix is the transformation from OpenGL camera space to SAPIEN world space
-                T = camera.camera.get_model_matrix()
-                pcd['xyz'] = pcd['xyz'] @ T[:3, :3].T + T[:3, 3]
+            pcds.append(pcd)
+        fused_pcd = {}
+        for key in pcds[0].keys():
+            fused_pcd[key] = np.concatenate([pcd[key] for pcd in pcds], axis=0)
+        return fused_pcd
 
-                pcds.append(pcd)
-            fused_pcd = {}
-            for key in pcds[0].keys():
-                fused_pcd[key] = np.concatenate([pcd[key] for pcd in pcds], axis=0)
-            return fused_pcd
+    def render(self) -> np.ndarray | dict[str, np.ndarray] | None:
+        if self._render_mode == "depth_array":
+            return self.render_depth_array()
+        elif self._render_mode == "seg_array":
+            return self.render_seg_array()
+        elif self._render_mode == "pointcloud":
+            return self.render_pointcloud()
         else:
-            ret = super().render(mode=mode)
-        return ret
+            return super().render()
 
     def get_state(self) -> np.ndarray:
         state = super().get_state()
@@ -352,7 +363,7 @@ class TestCubeBowlSpatial(TestCubeSpatial):
         self.obj.name = self.model_id
 
     def reset(self, seed=None, reconfigure=False, model_id=None, model_scale=None, cube_inside=False):
-        self.set_episode_rng(seed)
+        self._set_episode_rng(seed)
         _reconfigure = self._set_model(model_id, model_scale)
         reconfigure = _reconfigure or reconfigure
 
@@ -397,7 +408,7 @@ class TestCubeBowlSpatial(TestCubeSpatial):
         return -bbox_min[2] * self.model_scale + 0.05
 
     def _load_actors(self):
-        self._add_ground(render=self.bg_name is None)
+        self._add_ground(render=self._bg_name is None)
         self._load_model()
         obj_comp = self.obj.find_component_by_type(physx.PhysxRigidDynamicComponent)
         obj_comp.set_linear_damping(0.1)

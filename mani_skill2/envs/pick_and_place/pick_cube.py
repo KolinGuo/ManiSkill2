@@ -29,7 +29,7 @@ class PickCubeEnv(StationaryManipulationEnv):
         super().__init__(*args, **kwargs)
 
     def _load_actors(self):
-        self._add_ground(render=self.bg_name is None)
+        self._add_ground(render=self._bg_name is None)
         self.obj = self._build_cube(self.cube_half_size)
         self.goal_site = self._build_sphere_site(self.goal_thresh)
 
@@ -146,13 +146,18 @@ class PickCubeEnv(StationaryManipulationEnv):
 
         return reward
 
-    def render(self, mode="human"):
-        if mode in ["human", "rgb_array"]:
-            show_entity(self.goal_site)
-            ret = super().render(mode=mode)
-            hide_entity(self.goal_site)
-        else:
-            ret = super().render(mode=mode)
+    def render_human(self) -> None:
+        """Render function when render_mode='human'"""
+        show_entity(self.goal_site)
+        ret = super().render_human()
+        hide_entity(self.goal_site)
+        return ret
+
+    def render_rgb_array(self) -> np.ndarray | None:
+        """Render function when render_mode='rgb_array'"""
+        show_entity(self.goal_site)
+        ret = super().render_rgb_array()
+        hide_entity(self.goal_site)
         return ret
 
     def get_state(self) -> np.ndarray:
@@ -278,7 +283,7 @@ class PickCubeRegionEnv(PickCubeEnv):
         super().__init__(*args, **kwargs)
 
     def _load_actors(self):
-        self._add_ground(render=self.bg_name is None)
+        self._add_ground(render=self._bg_name is None)
         self.obj = self._build_cube(self.cube_half_size)
         self.goal_site = self._build_sphere_site(self.goal_thresh,
                                                  pose=self.goal_pose)

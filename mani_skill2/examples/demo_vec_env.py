@@ -1,10 +1,9 @@
 import argparse
 import time
 
-import gym
+import gymnasium as gym
 import numpy as np
 
-from mani_skill2 import make_box_space_readable
 from mani_skill2.utils.visualization.misc import observations_to_images, tile_images
 from mani_skill2.vector import VecEnv, make
 
@@ -32,7 +31,6 @@ def parse_args():
 
 
 def main():
-    make_box_space_readable()
     np.set_printoptions(suppress=True, precision=3)
 
     args = parse_args()
@@ -64,8 +62,7 @@ def main():
 
         for t in range(l_ep):
             action = [env.action_space.sample() for _ in range(args.n_envs)]
-            obs, reward, info, done = env.step(action)
-            # print(t, reward, info, done)
+            obs, reward, terminated, truncated, info = env.step(action)
 
             # Visualize
             if args.vis and env.obs_mode in ["image", "rgbd", "rgbd_robot_seg"]:

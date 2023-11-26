@@ -14,8 +14,10 @@ from mani_skill2.utils.io_utils import load_json
 from mani_skill2.utils.registration import register_env
 from mani_skill2.utils.sapien_utils import (
     get_articulation_max_impulse_norm,
+    hide_entity,
     look_at,
     set_articulation_render_material,
+    show_entity,
     vectorize_pose,
 )
 
@@ -48,7 +50,7 @@ class AvoidObstaclesBaseEnv(BaseEnv):
         return scene_config
 
     def reset(self, *args, seed=None, episode_idx=None, reconfigure=False, **kwargs):
-        self.set_episode_rng(seed)
+        self._set_episode_rng(seed)
         if episode_idx is None:
             episode_idx = self._episode_rng.choice(len(self.episodes))
         if episode_idx != self.episode_idx:
@@ -110,7 +112,7 @@ class AvoidObstaclesBaseEnv(BaseEnv):
         return actor
 
     def _load_actors(self):
-        self._add_ground(render=self.bg_name is None)
+        self._add_ground(render=self._bg_name is None)
 
         # Add a wall
         if "wall" in self.episode_config:
@@ -219,13 +221,18 @@ class AvoidObstaclesBaseEnv(BaseEnv):
         self._viewer.set_camera_xyz(1.5, 0.0, 1.5)
         self._viewer.set_camera_rpy(0, -0.6, 3.14)
 
-    def render(self, mode="human"):
-        if mode in ["human", "rgb_array"]:
-            self.goal_site.unhide_visual()
-            ret = super().render(mode=mode)
-            self.goal_site.hide_visual()
-        else:
-            ret = super().render(mode=mode)
+    def render_human(self) -> None:
+        """Render function when render_mode='human'"""
+        show_entity(self.goal_site)
+        ret = super().render_human()
+        hide_entity(self.goal_site)
+        return ret
+
+    def render_rgb_array(self) -> np.ndarray | None:
+        """Render function when render_mode='rgb_array'"""
+        show_entity(self.goal_site)
+        ret = super().render_rgb_array()
+        hide_entity(self.goal_site)
         return ret
 
 

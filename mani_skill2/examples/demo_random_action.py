@@ -1,6 +1,6 @@
 import argparse
 
-import gym
+import gymnasium as gym
 import numpy as np
 
 from mani_skill2.envs.sapien_env import BaseEnv
@@ -55,15 +55,16 @@ def main():
 
     while True:
         action = env.action_space.sample()
-        obs, reward, done, info = env.step(action)
+        obs, reward, terminated, truncated, info = env.step(action)
         print("reward", reward)
-        print("done", done)
+        print("terminated", terminated)
+        print("truncated", truncated)
         print("info", info)
 
         if args.render_mode is not None:
             env.render(args.render_mode)
 
-        if done:
+        if terminated or truncated:
             break
 
 

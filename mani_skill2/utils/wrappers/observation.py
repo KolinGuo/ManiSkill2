@@ -2,9 +2,9 @@ from collections import OrderedDict
 from copy import deepcopy
 from typing import Sequence
 
-import gym
+import gymnasium as gym
 import numpy as np
-from gym import spaces
+from gymnasium import spaces
 
 from mani_skill2.utils.common import (
     flatten_dict_keys,
@@ -35,13 +35,8 @@ class RGBDObservationWrapper(gym.ObservationWrapper):
                 height, width = cam_space.spaces.pop("Segmentation").shape[:2]
                 cam_space.spaces["bg_mask"] = spaces.Box(
                     False, True, shape=(height, width, 1), dtype=bool
-                )  # NOTE: sample() gives wrong values
-            elif "mask" in self.obs_mode:
-                height, width = cam_space.spaces.pop("Segmentation").shape[:2]
-                cam_space.spaces["obj_mask"] = spaces.Box(
-                    False, True, shape=(height, width, 1), dtype=bool
-                )  # NOTE: sample() gives wrong values
-            else:
+                )
+            elif "mask" not in self.obs_mode:
                 cam_space.spaces.pop("Segmentation", None)
         self.update_observation_space(self.observation_space)
 
@@ -78,7 +73,7 @@ class RGBDObservationWrapper(gym.ObservationWrapper):
             new_images = OrderedDict()
             for key in ori_images:
                 if key == "Color":
-                    rgb = ori_images[key][..., :3]  # [H, W, 4]
+                    rgb = ori_images[key][..., :3]  # [H, W, 3]
                     rgb = np.clip(rgb * 255, 0, 255).astype(np.uint8)
                     new_images["rgb"] = rgb  # [H, W, 3]
                 elif key == "Position":
@@ -222,9 +217,9 @@ class RobotSegmentationObservationWrapper(gym.ObservationWrapper):
                 pcd_space.spaces["robot_seg"] = new_space
 
     def reset(self, **kwargs):
-        observation = self.env.reset(**kwargs)
+        observation, info = self.env.reset(**kwargs)
         self.robot_link_ids = self.env.robot_link_ids
-        return self.observation(observation)
+        return self.observation(observation), info
 
     def observation_image(self, observation: dict):
         image_obs = observation["image"]

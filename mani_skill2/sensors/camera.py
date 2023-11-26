@@ -4,7 +4,7 @@ from typing import Dict, List, Sequence
 import numpy as np
 import sapien
 import sapien.physx as physx
-from gym import spaces
+from gymnasium import spaces
 
 from mani_skill2.utils.sapien_utils import get_obj_by_name, hide_entity
 

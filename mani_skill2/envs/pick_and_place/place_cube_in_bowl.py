@@ -408,7 +408,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         self.bowl.name = self.model_id
 
     def _load_actors(self):
-        self.ground = self._add_ground(render=self.bg_name is None)
+        self.ground = self._add_ground(render=self._bg_name is None)
         self._load_model()
         bowl_comp = self.bowl.find_component_by_type(physx.PhysxRigidDynamicComponent)
         bowl_comp.set_linear_damping(0.1)
@@ -427,16 +427,16 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             self._reset_gsam()
 
         self._prev_actor_poses = {}
-        self.set_episode_rng(seed)
+        self._set_episode_rng(seed)
         _reconfigure = self._set_model(model_id, model_scale)
         reconfigure = _reconfigure or reconfigure
 
-        obs = super().reset(seed=self._episode_seed, reconfigure=reconfigure)
+        obs, info = super().reset(seed=self._episode_seed, reconfigure=reconfigure)
 
         if self.use_grounded_sam and self.save_trajectory:
             self.current_traj["env_states"].append(self.get_state())
             self.current_traj["sam_obs"].append(self.recent_sam_obs)
-        return obs
+        return obs, info
 
     def reconfigure(self):
         """Reconfigure the simulation scene instance.
@@ -1354,7 +1354,7 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
         """
         if self.use_random_camera_pose and self.random_camera_pose_per_step:
             self._randomize_camera_pose()
-        obs, reward, done, info = super().step(action)
+        obs, reward, terminated, truncated, info = super().step(action)
 
         if self.use_grounded_sam:
             info = self._step_gsam(info)
@@ -1364,9 +1364,10 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             self.current_traj["sam_obs"].append(self.recent_sam_obs)
             self.current_traj["action"].append(action)
             self.current_traj["reward"].append(reward)
-            self.current_traj["done"].append(done)
+            self.current_traj["terminated"].append(terminated)
+            self.current_traj["truncated"].append(truncated)
             self.current_traj["info"].append(info)
-        return obs, reward, done, info
+        return obs, reward, terminated, truncated, info
 
     def check_cube_inside(self, bowl_bbox=None, cube_bbox=None):
         """Check if the cube is placed inside the bowl"""
@@ -1507,12 +1508,6 @@ class PlaceCubeInBowlEnv(StationaryManipulationEnv):
             ))
 
         return eval_dict
-
-    def get_done(self, info: dict, **kwargs):
-        if self.use_grounded_sam:
-            return bool(info["sam_eval_dict"]["success"])
-        else:
-            return bool(info["success"])
 
     def get_info(self, **kwargs) -> dict:
         info = super().get_info(**kwargs)

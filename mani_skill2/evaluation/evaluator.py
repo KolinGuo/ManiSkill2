@@ -1,7 +1,7 @@
 from collections import OrderedDict
 from typing import Callable, List, Type
 
-import gym
+import gymnasium as gym
 import numpy as np
 
 from mani_skill2.envs.sapien_env import BaseEnv
@@ -32,7 +32,7 @@ class BaseEvaluator:
         )
         self.result = OrderedDict()
 
-    def evaluate_episode(self, reset_kwargs, render_mode=None):
+    def evaluate_episode(self, reset_kwargs, render_human=False):
         """Evaluate a single episode."""
         env = self.env
         policy = self.policy
@@ -45,12 +45,12 @@ class BaseEvaluator:
         for _ in range(self.MAX_EPISODE_STEPS):
             action = policy.act(obs)
             # NOTE(jigu): render after action in case action is needed to visualize
-            if render_mode is not None:
-                env.render(mode=render_mode)
-            obs, reward, done, info = env.step(action)
-            if done:
-                if render_mode is not None:
-                    env.render(mode=render_mode)
+            if render_human:
+                env.render_human()
+            obs, reward, terminated, truncated, info = env.step(action)
+            if terminated or truncated:
+                if render_human:
+                    env.render_human()
                 assert "success" in info, sorted(info.keys())
                 metrics = extract_scalars_from_info(info, "TimeLimit.truncated")
                 return metrics

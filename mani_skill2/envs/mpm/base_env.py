@@ -123,7 +123,7 @@ class MPMBaseEnv(BaseEnv):
 
     def _load_actors(self):
         self._scene.add_ground(altitude=0.0, render=False)
-        if self.bg_name is None:
+        if self._bg_name is None:
             b = self._scene.create_actor_builder()
             b.add_visual_from_file(str(PACKAGE_ASSET_DIR / "maniskill2-scene-2.glb"))
             b.build_kinematic()

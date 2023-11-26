@@ -154,7 +154,7 @@ class GraspWithPromptEnv(GraspingEnv):
             self.obj.name = f"{dataset}/{model_id}"
 
     def _load_actors(self):
-        self.ground = self._add_ground(render=self.bg_name is None)
+        self.ground = self._add_ground(render=self._bg_name is None)
         self._load_model()
         obj_comp = self.obj.find_component_by_type(physx.PhysxRigidDynamicComponent)
         obj_comp.set_linear_damping(0.1)
@@ -165,7 +165,7 @@ class GraspWithPromptEnv(GraspingEnv):
     # ---------------------------------------------------------------------- #
     def reset(self, seed=None, reconfigure=False, model_id=None, model_scale=None):
         self._prev_actor_poses = {}
-        self.set_episode_rng(seed)
+        self._set_episode_rng(seed)
         _reconfigure = self._set_model(model_id, model_scale)
         reconfigure = _reconfigure or reconfigure
 
@@ -339,6 +339,3 @@ class GraspWithPromptEnv(GraspingEnv):
     def evaluate(self, **kwargs) -> dict:
         # TODO: 
         raise NotImplementedError
-
-    def get_done(self, info: dict, **kwargs):
-        return bool(info["success"])

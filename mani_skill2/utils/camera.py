@@ -17,14 +17,10 @@ def resize_obs_images(obs: OrderedDict, new_size: Tuple[int],
         for key, image in images.items():
             old_shape = image.shape
             if key in ["Color", "Position", "rgb", "depth"]:
-                resized_image = cv2.resize(
-                    image,
-                    new_size, interpolation=interpolation
-                )
+                resized_image = cv2.resize(image, new_size, interpolation=interpolation)
             elif key in ["Segmentation", "bg_mask", "obj_mask"]:
                 resized_image = cv2.resize(
-                    image.astype(np.uint16),
-                    new_size, interpolation=interpolation
+                    image.astype(np.uint16), new_size, interpolation=interpolation
                 ).astype(image.dtype)
             else:
                 raise ValueError(f"Unknown key {key}")

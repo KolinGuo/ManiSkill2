@@ -1,8 +1,10 @@
-import numpy as np
-import gym
 from collections import OrderedDict
+
+import gymnasium as gym
+import numpy as np
 import sapien
 from sapien import internal_renderer as R
+
 from mani_skill2.utils.geometry import rotation_between_vec
 from mani_skill2.utils.sapien_utils import get_pairwise_contacts
 
@@ -247,9 +249,8 @@ class SapienViewerWrapper(gym.Wrapper):
             }
             self.update_vectors(vectors)
 
-    def render(self, mode='human', **kwargs):
-        if mode == 'human':
-            self.update_contact_vectors()
-            self.update_points()
-
-        return self.env.render(mode=mode, **kwargs)
+    def render_human(self) -> None:
+        """Render function when render_mode='human'"""
+        self.update_contact_vectors()
+        self.update_points()
+        return self.env.render_human()

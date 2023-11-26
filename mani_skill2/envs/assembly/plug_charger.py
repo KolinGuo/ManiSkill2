@@ -96,7 +96,7 @@ class PlugChargerEnv(StationaryManipulationEnv):
         return builder.build_static(name="receptacle")
 
     def _load_actors(self):
-        self._add_ground(render=self.bg_name is None)
+        self._add_ground(render=self._bg_name is None)
         self.charger = self._build_charger(
             self._peg_size,
             self._base_size,
@@ -298,9 +298,9 @@ class PlugChargerEnv(StationaryManipulationEnv):
 
     def _setup_lighting(self):
         super()._setup_lighting()
-        if self.enable_shadow:
+        if self._enable_shadow:
             self._scene.add_point_light(
-                [-0.2, -0.5, 1], [2, 2, 2], shadow=self.enable_shadow
+                [-0.2, -0.5, 1], [2, 2, 2], shadow=self._enable_shadow
             )
 
     def set_state(self, state):
