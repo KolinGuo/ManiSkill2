@@ -2,6 +2,7 @@ import warnings
 import os
 from typing import List, Sequence
 
+import mplib
 import numpy as np
 import sapien
 import sapien.physx as physx
@@ -12,6 +13,8 @@ class XArm7(sapien.Widget):
     def __init__(self, asset_dir=os.path.dirname(__file__)):
         self.robot: physx.PhysxArticulation = None
         self.asset_dir = asset_dir
+        self.urdf_path = os.path.join(self.asset_dir, "xarm7_d435.urdf")
+        self.srdf_path = os.path.join(self.asset_dir, "xarm7_d435.srdf")
 
     def load(self, scene: sapien.Scene) -> None:
         if not scene.physx_system.config.enable_tgs:
@@ -30,10 +33,9 @@ class XArm7(sapien.Widget):
         loader.set_link_min_patch_radius("left_finger", 0.1)
         loader.set_link_min_patch_radius("right_finger", 0.1)
 
-        path = os.path.join(self.asset_dir, "xarm7_d435.urdf")
-        self.robot: physx.PhysxArticulation = loader.load(path)
+        self.robot: physx.PhysxArticulation = loader.load(self.urdf_path)
         # NOTE: currently sapien.wrapper.urdf_loader.URDFLoader does not set robot name
-        self.robot.name = os.path.basename(path.replace(".urdf", ""))
+        self.robot.name = os.path.basename(self.urdf_path.replace(".urdf", ""))
         for link in self.robot.links:
             link.disable_gravity = True
 
@@ -125,6 +127,27 @@ class XArm7(sapien.Widget):
         else:
             raise RuntimeError(f"{self} is not loaded yet. "
                                f"Please call scene.load_widget() on it first")
+
+    # ----- mplib.Planner ----- #
+    def get_planner(self, move_group: str = "link_tcp") -> mplib.Planner:
+        """Creates an mplib.Planner for the robot
+
+        :param move_group: name of robot link to plan.
+                           Usually can be ["link_eef", "link_tcp"].
+        """
+        link_names = [l.name for l in self.links]
+        assert move_group in link_names, f'No link named "{move_group}": {link_names=}'
+
+        return mplib.Planner(
+            urdf=self.urdf_path,
+            srdf=self.srdf_path,
+            user_link_names=link_names,
+            user_joint_names=[j.name for j in self.robot.active_joints],
+            move_group=move_group,
+            # vel/acc limits are from Table 1.2 in xArm User Manual v2.0.0
+            joint_vel_limits=np.full(7, np.pi),
+            joint_acc_limits=np.full(7, np.deg2rad(1145)),
+        )
 
     # ----- Attribute wrappers of physx.PhysxArticulation for mimicked joints ----- #
     def get_dof(self) -> int:

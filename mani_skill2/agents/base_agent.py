@@ -64,7 +64,7 @@ class BaseAgent:
         self.config = config or self.get_default_config()
 
         # URDF
-        self.urdf_path = self.config.urdf_path
+        self.urdf_path = format_path(str(self.config.urdf_path))
         self.fix_root_link = fix_root_link
         self.urdf_config = self.config.urdf_config
 
@@ -89,16 +89,14 @@ class BaseAgent:
         loader = self.scene.create_urdf_loader()
         loader.fix_root_link = self.fix_root_link
 
-        urdf_path = format_path(str(self.urdf_path))
-
         urdf_config = parse_urdf_config(self.urdf_config, self.scene)
         check_urdf_config(urdf_config)
 
         # TODO(jigu): support loading multiple convex collision shapes
         apply_urdf_config(loader, urdf_config)
-        self.robot: physx.PhysxArticulation = loader.load(urdf_path)
-        assert self.robot is not None, f"Fail to load URDF from {urdf_path}"
-        self.robot.set_name(Path(urdf_path).stem)
+        self.robot: physx.PhysxArticulation = loader.load(self.urdf_path)
+        assert self.robot is not None, f"Fail to load URDF from {self.urdf_path}"
+        self.robot.set_name(Path(self.urdf_path).stem)
 
         # Cache robot link ids
         self.robot_link_ids = [link.entity.per_scene_id
