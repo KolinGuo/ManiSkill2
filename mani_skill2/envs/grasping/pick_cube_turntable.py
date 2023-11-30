@@ -6,7 +6,6 @@ import sapien.physx as physx
 from sapien import Pose
 from transforms3d.euler import euler2quat
 
-from mani_skill2.utils.camera import resize_obs_images
 from mani_skill2.utils.registration import register_env
 from mani_skill2.utils.sapien_utils import look_at
 

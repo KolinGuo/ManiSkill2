@@ -2,11 +2,12 @@ import warnings
 import os
 from typing import List, Sequence
 
-import mplib
 import numpy as np
 import sapien
 import sapien.physx as physx
 from sapien.utils import Viewer
+
+from mani_skill2.utils.planner import Planner
 
 
 class XArm7(sapien.Widget):
@@ -129,7 +130,7 @@ class XArm7(sapien.Widget):
                                f"Please call scene.load_widget() on it first")
 
     # ----- mplib.Planner ----- #
-    def get_planner(self, move_group: str = "link_tcp") -> mplib.Planner:
+    def get_planner(self, move_group: str = "link_tcp") -> Planner:
         """Creates an mplib.Planner for the robot
 
         :param move_group: name of robot link to plan.
@@ -138,7 +139,7 @@ class XArm7(sapien.Widget):
         link_names = [l.name for l in self.links]
         assert move_group in link_names, f'No link named "{move_group}": {link_names=}'
 
-        return mplib.Planner(
+        return Planner(
             urdf=self.urdf_path,
             srdf=self.srdf_path,
             user_link_names=link_names,
