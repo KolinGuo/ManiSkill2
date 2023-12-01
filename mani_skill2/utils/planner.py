@@ -9,6 +9,7 @@ from mplib.pymp.articulation import ArticulatedModel
 from mplib.pymp.fcl import Box, Capsule, CollisionObject, Convex, Cylinder
 from mplib.pymp.planning_world import WorldCollisionResult
 from sapien import Entity, Pose
+from transforms3d.euler import euler2quat
 from transforms3d.quaternions import quat2mat
 
 from mani_skill2.envs.sapien_env import BaseEnv
@@ -477,6 +478,9 @@ def get_planner(
             col_geometry = Capsule(
                 radius=col_shape.radius, lz=col_shape.half_length * 2
             )
+            # NOTE: physx Capsule has x-axis along capsule height
+            # FCL Capsule has z-axis along capsule height
+            pose = pose * Pose(q=euler2quat(0, np.pi / 2, 0))
         elif isinstance(col_shape, physx.PhysxCollisionShapeConvexMesh):
             assert np.allclose(col_shape.scale, 1.0), \
                 f"Not unit scale {col_shape.scale}, need to rescale vertices?"
@@ -487,6 +491,9 @@ def get_planner(
             col_geometry = Cylinder(
                 radius=col_shape.radius, lz=col_shape.half_length * 2
             )
+            # NOTE: physx Cylinder has x-axis along cylinder height
+            # FCL Cylinder has z-axis along cylinder height
+            pose = pose * Pose(q=euler2quat(0, np.pi / 2, 0))
         elif isinstance(col_shape, physx.PhysxCollisionShapePlane):
             raise NotImplementedError(
                 "Support for Plane collision is not implemented yet in mplib, "
@@ -525,6 +532,9 @@ def update_object_pose(planner: mplib.Planner, env: BaseEnv) -> None:
     for name, col_obj in zip(planner.object_names, planning_world.get_normal_objects()):
         entity: Entity = env._actors[entity_names.index(name)]
         pose: Pose = entity.pose
+        # NOTE: Convert poses for Capsule/Cylinder
+        if isinstance(col_obj.get_collision_geometry(), (Capsule, Cylinder)):
+            pose = pose * Pose(q=euler2quat(0, np.pi / 2, 0))
         col_obj.set_transformation(np.hstack((pose.p, pose.q)))
 
 
