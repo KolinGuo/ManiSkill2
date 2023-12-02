@@ -44,7 +44,7 @@ class Planner(mplib.Planner):
         return set(self.collision_free_pairs + self.collision_ignored_pairs)
 
     def _filter_collisions(
-        self, collisions: list[WorldCollisionResult]
+        self, collisions: list[WorldCollisionResult], *, verbose: bool = False
     ) -> list[WorldCollisionResult]:
         """Filter normal_object type collisions"""
         filtered = []
@@ -64,6 +64,8 @@ class Planner(mplib.Planner):
                 if any(p in ignored_pairs for p in matched_pairs):
                     continue
             filtered.append(collision)
+        if verbose and len(filtered) > 0:
+            print_collision_info(filtered, with_contact=True)
         return filtered
 
     # ----- Methods with improvements ----- #
@@ -96,25 +98,73 @@ class Planner(mplib.Planner):
         collision_function,
         articulation: ArticulatedModel = None,
         qpos: np.ndarray = None,
+        *,
+        verbose: bool = False,
     ) -> list[WorldCollisionResult]:
+        """
+        :param collision_function: collision function to call.
+        :param articulation: robot model. If none will be self.robot.
+        :param qpos: robot joint positions. If None will be the current qpos.
+        :param verbose: whether to print collision info if any collision exists.
+        :return results: list of collisions. Collision exists if the list is not empty.
+        """
         return self._filter_collisions(
-            super().check_for_collision(collision_function, articulation, qpos)
+            super().check_for_collision(collision_function, articulation, qpos),
+            verbose=verbose
         )
 
     def check_for_all_collision(
-        self, articulation: ArticulatedModel = None, qpos: np.ndarray = None
+        self,
+        articulation: ArticulatedModel = None,
+        qpos: np.ndarray = None,
+        *,
+        verbose: bool = False,
     ) -> list[WorldCollisionResult]:
         """Check if the robot is in self-collision or collision with the environment.
 
-        Args:
-            articulation: robot model. if none will be self.robot
-            qpos: robot configuration. if none will be the current pose
-
-        Returns:
-            A list of collisions. Collision exists if the list is not empty.
+        :param articulation: robot model. If none will be self.robot.
+        :param qpos: robot joint positions. If None will be the current qpos.
+        :param verbose: whether to print collision info if any collision exists.
+        :return results: list of collisions. Collision exists if the list is not empty.
         """
         return self.check_for_collision(
-            self.planning_world.collide_full, articulation, qpos
+            self.planning_world.collide_full, articulation, qpos, verbose=verbose
+        )
+
+    def check_for_self_collision(
+        self,
+        articulation: ArticulatedModel = None,
+        qpos: np.ndarray = None,
+        *,
+        verbose: bool = False,
+    ) -> list[WorldCollisionResult]:
+        """Check if the robot is in self-collision.
+
+        :param articulation: robot model. If none will be self.robot.
+        :param qpos: robot joint positions. If None will be the current qpos.
+        :param verbose: whether to print collision info if any collision exists.
+        :return results: list of collisions. Collision exists if the list is not empty.
+        """
+        return self.check_for_collision(
+            self.planning_world.self_collide, articulation, qpos, verbose=verbose
+        )
+
+    def check_for_env_collision(
+        self,
+        articulation: ArticulatedModel = None,
+        qpos: np.ndarray = None,
+        *,
+        verbose: bool = False,
+    ) -> list[WorldCollisionResult]:
+        """Check if the robot is in collision with the environment
+
+        :param articulation: robot model. If none will be self.robot.
+        :param qpos: robot joint positions. If None will be the current qpos.
+        :param verbose: whether to print collision info if any collision exists.
+        :return results: list of collisions. Collision exists if the list is not empty.
+        """
+        return self.check_for_collision(
+            self.planning_world.collide_with_others, articulation, qpos, verbose=verbose
         )
 
     def IK(
@@ -122,9 +172,11 @@ class Planner(mplib.Planner):
         goal_pose: np.ndarray,
         start_qpos: np.ndarray,
         mask: np.ndarray = [],
+        *,
         n_init_qpos: int = 20,
         threshold: float = 0.001,
         return_closest: bool = False,
+        verbose: bool = False,
     ) -> tuple[str, list[np.ndarray] | np.ndarray | None]:
         """Compute inverse kinematics
 
@@ -136,6 +188,7 @@ class Planner(mplib.Planner):
                           distance_6D is position error norm + quaternion error norm.
         :param return_closest: whether to return the qpos that is closest to start_qpos,
                                considering equivalent joint values.
+        :param verbose: whether to print collision info if any collision exists.
         :return status: IK status, "Success" if succeeded.
         :return q_goals: list of sampled IK qpos, (ndof,) np.floating np.ndarray.
                          IK is successful if len(q_goals) > 0.
@@ -159,7 +212,11 @@ class Planner(mplib.Planner):
             if success:
                 # check collision
                 self.planning_world.set_qpos_all(ik_qpos[move_joint_idx])
-                if len(self._filter_collisions(self.planning_world.collide_full())) > 0:
+                if (
+                    len(self._filter_collisions(
+                        self.planning_world.collide_full(), verbose=verbose
+                    )) > 0
+                ):
                     success = False
 
             if success:
@@ -217,6 +274,7 @@ class Planner(mplib.Planner):
         goal_pose: np.ndarray,
         current_qpos: np.ndarray,
         mask: np.ndarray = [],
+        *,
         time_step: float = 0.1,
         rrt_range: float = 0.1,
         planning_time: float = 1,
@@ -271,7 +329,9 @@ class Planner(mplib.Planner):
                     current_qpos[i] = self.joint_limits[i][1] - 1e-3
 
         self.robot.set_qpos(current_qpos, True)
-        collisions = self._filter_collisions(self.planning_world.collide_full())
+        collisions = self._filter_collisions(
+            self.planning_world.collide_full(), verbose=verbose
+        )
         if len(collisions) != 0:
             print("Invalid start state!")
             for collision in collisions:
@@ -323,6 +383,7 @@ class Planner(mplib.Planner):
         self,
         goal_pose: np.ndarray,
         current_qpos: np.ndarray,
+        *,
         time_step: float = 0.1,
         qpos_step: float = 0.1,
         use_point_cloud: bool = False,
@@ -451,7 +512,9 @@ class Planner(mplib.Planner):
 
             within_joint_limit = check_joint_limit(current_qpos)
             self.planning_world.set_qpos_all(current_qpos[index])
-            collisions = self._filter_collisions(self.planning_world.collide_full())
+            collisions = self._filter_collisions(
+                self.planning_world.collide_full(), verbose=verbose
+            )
 
             if (
                 np.linalg.norm(delta_twist) < 1e-4
@@ -590,7 +653,7 @@ def print_collision_info(
     :param collisions: list of collisions.
     :param with_contact: also prints contact info.
     """
-    print(f"Found {len(collisions)} collisions")
+    print(f"[Planner] Found {len(collisions)} collisions")
     for i, collision in enumerate(collisions):
         print(f"  [{i}]: type={collision.collision_type}, "
               f"objects=({collision.object_name1}, {collision.object_name2}), "
