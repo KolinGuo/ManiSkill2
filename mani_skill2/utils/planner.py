@@ -34,6 +34,11 @@ class Planner(mplib.Planner):
         self.collision_free_pairs = collision_free_pairs
         self.collision_ignored_pairs: list[tuple[str]] = []
 
+        # Mask for joints that have equivalent values (revolute joints with range > 2pi)
+        self.equiv_joint_mask = [
+            t.startswith("JointModelR") for t in self.joint_types
+        ] & (self.joint_limits[:, 1] - self.joint_limits[:, 0] > 2 * np.pi)
+
     @property
     def all_collision_ignored_pairs(self) -> set[tuple[str]]:
         return set(self.collision_free_pairs + self.collision_ignored_pairs)
@@ -60,6 +65,30 @@ class Planner(mplib.Planner):
                     continue
             filtered.append(collision)
         return filtered
+
+    # ----- Methods with improvements ----- #
+    def check_joint_limit(self, qpos: np.ndarray) -> bool:
+        """Check joint limits, always clip q towards lower limits for revolute joints
+        i.e., q will be in range [qlimit[0], qlimit[0] + 2*pi)
+
+        :param qpos: joint positions, qpos will be clipped if within_limits.
+                     If not within_limits, qpos might not be fully clipped.
+        :return within_limits: whether the joint positions are within joint limits.
+        """
+        for i, (q, joint_type, qlimit) in enumerate(
+            zip(qpos, self.joint_types, self.joint_limits)
+        ):
+            if joint_type.startswith("JointModelR"):  # revolute joint
+                if np.abs(q - qlimit[0]) < 1e-3:
+                    continue
+                q -= 2 * np.pi * np.floor((q - qlimit[0]) / (2 * np.pi))
+                qpos[i] = q  # clip qpos
+                if q > qlimit[1] + 1e-3:
+                    return False
+            else:
+                if q < qlimit[0] - 1e-3 or q > qlimit[1] + 1e-3:
+                    return False
+        return True
 
     # ----- Methods that uses _filter_collisions() ----- #
     def check_for_collision(
@@ -104,72 +133,84 @@ class Planner(mplib.Planner):
         :param mask: qpos mask to disable planning, (ndof,) bool np.ndarray.
         :param n_init_qpos: number of init qpos to sample.
         :param threshold: distance_6D threshold for marking sampled IK as success.
-        :param return_closest: whether to return the qpos that is closest to start_qpos.
+                          distance_6D is position error norm + quaternion error norm.
+        :param return_closest: whether to return the qpos that is closest to start_qpos,
+                               considering equivalent joint values.
         :return status: IK status, "Success" if succeeded.
-        :return results: list of sampled IK qpos, (ndof,) np.floating np.ndarray.
-                         IK is successful if len(results) > 0.
-                         If return_closest, results is np.ndarray if successful
+        :return q_goals: list of sampled IK qpos, (ndof,) np.floating np.ndarray.
+                         IK is successful if len(q_goals) > 0.
+                         If return_closest, q_goals is np.ndarray if successful
                          and None if not successful.
         """
-        index = self.link_name_2_idx[self.move_group]
-        min_dis = 1e9
-        idx = self.move_group_joint_indices
-        qpos0 = np.copy(start_qpos)
-        results = []
+        move_link_idx = self.link_name_2_idx[self.move_group]
+        move_joint_idx = self.move_group_joint_indices
         self.robot.set_qpos(start_qpos, True)
+
+        min_dis = 1e9
+        q_goals = []
+        qpos = start_qpos
         for _ in range(n_init_qpos):
-            ik_results = self.pinocchio_model.compute_IK_CLIK(
-                index, goal_pose, start_qpos, mask
+            ik_qpos, ik_success, ik_error = self.pinocchio_model.compute_IK_CLIK(
+                move_link_idx, goal_pose, qpos, mask
             )
-            flag = self.check_joint_limit(ik_results[0])  # will clip qpos
+            # NOTE: check_joint_limit() will clip qpos towards lower limits
+            success = ik_success and self.check_joint_limit(ik_qpos)
 
-            # check collision
-            self.planning_world.set_qpos_all(ik_results[0][idx])
-            if (len(self._filter_collisions(self.planning_world.collide_full())) != 0):
-                flag = False
+            if success:
+                # check collision
+                self.planning_world.set_qpos_all(ik_qpos[move_joint_idx])
+                if len(self._filter_collisions(self.planning_world.collide_full())) > 0:
+                    success = False
 
-            if flag:
-                self.pinocchio_model.compute_forward_kinematics(ik_results[0])
-                new_pose = self.pinocchio_model.get_link_pose(index)
+            if success:
+                self.pinocchio_model.compute_forward_kinematics(ik_qpos)
+                new_pose = self.pinocchio_model.get_link_pose(move_link_idx)
                 tmp_dis = self.distance_6D(
                     goal_pose[:3], goal_pose[3:], new_pose[:3], new_pose[3:]
                 )
                 if tmp_dis < min_dis:
                     min_dis = tmp_dis
                 if tmp_dis < threshold:
-                    result = ik_results[0]
-                    unique = True
-                    for j in range(len(results)):
-                        if np.linalg.norm(results[j][idx] - result[idx]) < 0.1:
-                            unique = False
-                    if unique:
-                        results.append(result)
-            start_qpos = self.pinocchio_model.get_random_configuration()
-            mask_len = len(mask)
-            if mask_len > 0:
-                for j in range(mask_len):
-                    if mask[j]:
-                        start_qpos[j] = qpos0[j]
-        if len(results) != 0:
+                    for q_goal in q_goals:
+                        if (
+                            np.linalg.norm(
+                                q_goal[move_joint_idx] - ik_qpos[move_joint_idx]
+                            ) < 0.1
+                        ):
+                            break  # not unique ik_qpos
+                    else:
+                        q_goals.append(ik_qpos)
+
+            qpos = self.pinocchio_model.get_random_configuration()
+            qpos[mask] = start_qpos[mask]  # use start_qpos for disabled joints
+
+        if len(q_goals) > 0:
             status = "Success"
         elif min_dis != 1e9:
-            status = (
-                "IK Failed! Distance %lf is greater than threshold %lf."
-                % (min_dis, threshold)
-            )
+            status = f"IK Failed! Distance {min_dis} is greater than {threshold=}."
         else:
             status = "IK Failed! Cannot find valid solution."
 
         if return_closest:
-            if len(results) > 0:
-                results = results[
-                    np.linalg.norm(
-                        np.asarray(results) - np.asarray(qpos0).reshape(1, -1), axis=1
-                    ).argmin()
-                ]
+            if len(q_goals) > 0:
+                q_goals = np.asarray(q_goals)  # [N, ndof]
+                start_qpos = np.asarray(start_qpos)[None]  # [1, ndof]
+
+                # Consider equivalent joint values
+                q1 = q_goals[:, self.equiv_joint_mask]  # [N, n_equiv_joint]
+                q2 = q1 + 2 * np.pi  # equivalent joints
+                start_q = start_qpos[:, self.equiv_joint_mask]  # [1, n_equiv_joint]
+
+                # Mask where q2 is valid and closer to start_q
+                q2_closer_mask = (
+                    q2 < self.joint_limits[:, 1][None, self.equiv_joint_mask]
+                ) & (np.abs(q1 - start_q) > np.abs(q2 - start_q))  # [N, n_equiv_joint]
+                q_goals[:, self.equiv_joint_mask] = np.where(q2_closer_mask, q2, q1)
+
+                q_goals = q_goals[np.linalg.norm(q_goals - start_qpos, axis=1).argmin()]
             else:
-                results = None
-        return status, results
+                q_goals = None
+        return status, q_goals
 
     def plan(
         self,
@@ -438,12 +479,15 @@ class Planner(mplib.Planner):
 
 
 def get_planner(
-    env: BaseEnv, collision_free_pairs: list[tuple[str]] = []
+    env: BaseEnv,
+    move_group: str = "link_tcp",
+    collision_free_pairs: list[tuple[str]] = [],
 ) -> mplib.Planner:
     """
     Creates an mplib.Planner for the robot in env
     with all articulations/actors as normal_objects
 
+    :param move_group: name of robot link to plan. Usually are ["link_eef", "link_tcp"].
     :param collision_free_pairs: always ignore collisions between these link pairs.
                                  list of link name tuples. '*' matches all links.
                                  Only affects collisions of normal_object type.
@@ -451,7 +495,7 @@ def get_planner(
                                  with cube.
     :return planner: created mplib.Planner.
     """
-    planner: Planner = env.agent.robot.get_planner()
+    planner: Planner = env.agent.robot.get_planner(move_group=move_group)
     planner.collision_free_pairs = collision_free_pairs
     planning_world = planner.planning_world
 
