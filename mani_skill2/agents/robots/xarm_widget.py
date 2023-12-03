@@ -13,6 +13,8 @@ from mani_skill2.utils.planner import Planner
 class XArm7(sapien.Widget):
     def __init__(self, asset_dir=os.path.dirname(__file__)):
         self.robot: physx.PhysxArticulation = None
+        self.init_qpos: np.ndarray = None  # without mimicked joints
+        self.init_all_qpos: np.ndarray = None  # includes mimicked joints
         self.asset_dir = asset_dir
         self.urdf_path = os.path.join(self.asset_dir, "xarm7_d435.urdf")
         self.srdf_path = os.path.join(self.asset_dir, "xarm7_d435.srdf")
@@ -53,10 +55,12 @@ class XArm7(sapien.Widget):
         self.set_arm_pd([1e6] * 7, [5e4] * 7, [100] * 7)
         self.set_gripper_pd(1e5, 1e3, 100)
 
-        self.robot.set_qpos([0, 0, 0, np.pi / 3, 0, np.pi / 3, -np.pi / 2] + [0.85] * 6)
+        self.init_qpos = np.array([0, 0, 0, np.pi / 3, 0, np.pi / 3, -np.pi / 2, 0.85])
+        self.init_all_qpos = np.hstack((self.init_qpos, [self.init_qpos[-1]] * 5))
+        self.robot.set_qpos(self.init_all_qpos)
         self.robot.set_qvel(np.zeros(13))
-        self.set_arm_target([0, 0, 0, np.pi / 3, 0, np.pi / 3, -np.pi / 2])
-        self.set_gripper_target(0.85)
+        self.set_arm_target(self.init_qpos[:-1])
+        self.set_gripper_target(self.init_qpos[-1])
 
     def _create_drives(self, scene: sapien.Scene) -> None:
         """Create drive joints and gear joint for gripper"""

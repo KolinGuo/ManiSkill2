@@ -6,7 +6,6 @@ import sapien.physx as physx
 from sapien import Pose
 from transforms3d.euler import euler2quat
 
-from mani_skill2.utils.planner import update_object_pose
 from mani_skill2.utils.registration import register_env
 from mani_skill2.utils.sapien_utils import look_at
 
@@ -83,23 +82,13 @@ class PickCubeTurntableEnv(GraspingEnv):
         return False
 
     def _sample_tcp_pose(self, max_trials=20) -> bool:
-        """Sample a valid tcp pose with objects visible
-        If successful, agent will be reset to the sampled configuration.
-        Otherwise, agent joint positions remain unchanged.
-        """
-        # Update planner objects pose with current environment state
-        update_object_pose(self.planner, self)
-        self.planner.collision_ignored_pairs = []  # does not ignore any collision pairs
-
-        initial_qpos = self.agent.robot.qpos
+        """Sample a valid tcp pose with objects visible"""
         pose_cam_ee = Pose(np.array(
             [[0, 0, 1, 0],
              [0, 1, 0, 0],
              [-1, 0, 0, 0],
              [0, 0, 0, 1]]
         ))
-        start_qpos = self.agent.robot.init_all_qpos.copy()
-        start_qpos[self.planner.move_group_joint_indices] = 0.0  # centered arm joints
         for _ in range(max_trials):
             delta_tcp_pose = Pose(
                 q=euler2quat(*np.deg2rad(self._episode_rng.uniform([-10, -10, -180],
@@ -109,25 +98,26 @@ class PickCubeTurntableEnv(GraspingEnv):
                 eye=self._episode_rng.uniform([0, -0.4, 0.2], [0.6, 0, 0.8]),
                 target=self.cube.pose.p
             ) * pose_cam_ee * delta_tcp_pose
-            pose_robot_ee = self.agent.robot.pose.inv() * pose_world_ee
 
-            # feasible collision-free IK
-            ik_status, q_goal = self.planner.IK(
-                np.hstack((pose_robot_ee.p, pose_robot_ee.q)),
-                start_qpos=start_qpos,
-                mask=self.qmask,
-                n_init_qpos=1,  # to match previous pmodel.compute_inverse_kinematics()
-                return_closest=True,  # return q_goal closest to start_qpos
-                verbose=self.verbosity_level >= 2,  # print collision info if any exists
+            qpos, success, error = self.pmodel.compute_inverse_kinematics(
+                self.ee_link_idx,
+                self.agent.robot.pose.inv() * pose_world_ee,
+                initial_qpos=np.zeros_like(self.qmask, dtype=np.float32),
+                active_qmask=self.qmask,
+                max_iterations=100
             )
+            if success:
+                qpos = qpos[:self.agent.robot.dof]
+                qpos[-1] = 0.85  # open gripper
 
-            if ik_status == "Success":
-                q_goal = q_goal[:self.agent.robot.dof]
-
-                self.agent.reset(q_goal)
-                if self._check_object_visible():
-                    return True
-                self.agent.reset(initial_qpos)  # reset agent to start_qpos
+            if (
+                success  # feasible IK
+                and not (self.check_collision_during_IK  # check collision
+                         and self._check_collision(qpos))  # has collision
+                and self._check_object_visible()  # objects are visible
+            ):
+                self.agent.reset(qpos)
+                return True
         return False
 
     def _initialize_agent(self, max_trials=100):
@@ -305,31 +295,14 @@ class PickCubeTurntableEnv(GraspingEnv):
                                                              q=self.tcp.pose.q)
         cur_robot_qpos = (self.agent.robot.robot.qpos if self._wrapped_robot
                           else self.agent.robot.qpos)
-
-        # Update planner objects pose with current environment state
-        update_object_pose(self.planner, self)
-        self.planner.collision_ignored_pairs = [("cube", '*')]  # ignore cube collisions
-
-        # feasible collision-free IK
-        ik_status, q_goal = self.planner.IK(
-            np.hstack((target_tcp_pose.p, target_tcp_pose.q)),
-            start_qpos=cur_robot_qpos,
-            mask=self.qmask,
-            n_init_qpos=100,  # sample more feasible q_goals
-            return_closest=True,  # return q_goal closest to start_qpos
-            verbose=self.verbosity_level >= 2,  # print collision info if any exists
+        qpos, success, error = self.pmodel.compute_inverse_kinematics(
+            self.ee_link_idx, target_tcp_pose,
+            initial_qpos=cur_robot_qpos,
+            active_qmask=self.qmask,
+            max_iterations=100
         )
-        if ik_status != "Success":
-            self._env_info_on_error = dict(
-                env_state_traj=[self.get_state()],
-                ik_status=ik_status,
-                ik_qpos=q_goal,
-            )
-            raise RuntimeError(
-                f"Failed to sample IK with {target_tcp_pose=} "
-                f"(seed={self._episode_seed})"
-            )
-        self.agent.robot.set_arm_target(q_goal[:7])
+        assert success, f"Failed to sample {target_tcp_pose=}"
+        self.agent.robot.set_arm_target(qpos[:7])
         self.agent.robot.set_gripper_target(-0.01)
 
         env_state_traj = [self.get_state()]
@@ -344,8 +317,9 @@ class PickCubeTurntableEnv(GraspingEnv):
         else:
             self._env_info_on_error = dict(
                 env_state_traj=env_state_traj,
-                ik_status=ik_status,
-                ik_qpos=q_goal,
+                ik_qpos=qpos,
+                ik_success=success,
+                ik_error=error,
                 total_ending_steps=total_ending_steps,
             )
             raise RuntimeError(
@@ -372,8 +346,9 @@ class PickCubeTurntableEnv(GraspingEnv):
             self._env_info_on_error = dict(
                 env_start_state_idx=env_start_state_idx,
                 env_state_traj=env_state_traj,
-                ik_status=ik_status,
-                ik_qpos=q_goal,
+                ik_qpos=qpos,
+                ik_success=success,
+                ik_error=error,
                 total_ending_steps=total_ending_steps,
                 ending_static_steps=ending_static_steps,
             )

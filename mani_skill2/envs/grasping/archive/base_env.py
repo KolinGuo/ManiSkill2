@@ -22,7 +22,6 @@ from mani_skill2.agents.utils import get_active_joint_indices
 from mani_skill2.envs.sapien_env import BaseEnv
 from mani_skill2.sensors.camera import CameraConfig
 from mani_skill2.utils.camera import resize_obs_images
-from mani_skill2.utils.planner import Planner, get_planner, update_object_pose
 from mani_skill2.utils.sapien_utils import (
     set_articulation_render_material,
     vectorize_pose,
@@ -53,6 +52,7 @@ class GraspingEnv(BaseEnv):
                  image_obs_mode=None,
                  image_obs_shape=(128, 128),
                  gamma=0.95,  # for compute_final_reward()
+                 check_collision_during_IK=True,
                  no_agent_obs=False,
                  no_agent_qvel_obs=False,
                  no_tcp_pose_obs=False,
@@ -77,6 +77,8 @@ class GraspingEnv(BaseEnv):
         self.image_obs_shape = image_obs_shape
         self.gamma = gamma
 
+        self.check_collision_during_IK = check_collision_during_IK
+
         self.no_agent_obs = no_agent_obs
         self.no_agent_qvel_obs = no_agent_qvel_obs
         self.no_tcp_pose_obs = no_tcp_pose_obs
@@ -84,10 +86,7 @@ class GraspingEnv(BaseEnv):
         self.random_camera_pose_per_step = random_camera_pose_per_step
         self.verbosity_level = verbosity_level
 
-        # NOTE: sapien.PinocchioModel.compute_inverse_kinematics() does not check qlimit
-        # switch to mplib.Planner
-        # self.pmodel: sapien.PinocchioModel = None  # for _check_feasible_grasp_pose
-        self.planner: Planner = None  # for IK and collision checking
+        self.pmodel: sapien.PinocchioModel = None  # for _check_feasible_grasp_pose
 
         # NOTE: this goal position is feasible for any TCP orientation
         self.tcp_goal_pos = [0.25, -0.25, 0.35]
@@ -177,7 +176,7 @@ class GraspingEnv(BaseEnv):
 
     def _initialize_turntable_actor(self, rot_speed=None):
         """Initialize turntable actor
-        :param rot_speed: rotation speed in rad/second. CCW if positive, CW if negative.
+        :param rot_speed: rotation speed in rad/second
         """
         comp = self.turntable.find_component_by_type(physx.PhysxRigidDynamicComponent)
         cylinder_col = comp.collision_shapes[0]
@@ -186,12 +185,11 @@ class GraspingEnv(BaseEnv):
         x = self._episode_rng.uniform(-0.095 + radius, 0.668 - radius)
         y = self._episode_rng.uniform(-0.494 + radius, 0.075 - radius)
         p = [x, y, half_length]
-        q = euler2quat(0, -np.pi / 2, 0)  # x-axis points up
+        q = euler2quat(0, np.pi / 2, 0)
         self.turntable.set_pose(Pose(p, q))
 
         if rot_speed is None:
-            # By default, rotates clockwise
-            rot_speed = -2 * np.pi / self._episode_rng.uniform(18.3, 49)
+            rot_speed = 2 * np.pi / self._episode_rng.uniform(18.3, 49)
 
         self.turntable_delta_pose = Pose(
             q=euler2quat(rot_speed * self.sim_timestep, 0.0, 0.0)
@@ -309,7 +307,7 @@ class GraspingEnv(BaseEnv):
             self.agent.reset(qpos)
             self.agent.robot.set_pose(Pose([0.0, 0.0, 0.0]))
         elif self.robot_uid == 'xarm7_d435':
-            qpos = self.agent.robot.init_qpos.copy()
+            qpos = np.array([0, 0, 0, np.pi / 3, 0, np.pi / 3, -np.pi / 2, 0.85])
             qpos[:-1] += self._episode_rng.normal(
                 0, self.robot_init_qpos_noise, len(qpos) - 1
             )
@@ -346,13 +344,6 @@ class GraspingEnv(BaseEnv):
 
         return super().reset(seed=self._episode_seed, reconfigure=reconfigure, **kwargs)
 
-    def _set_episode_rng(self, seed: int):
-        """Set the random generator for current episode."""
-        super()._set_episode_rng(seed)
-        # Seed the planner as well
-        if self.planner is not None:
-            self.planner.seed(self._episode_seed)
-
     # ---------------------------------------------------------------------- #
     # Helpful functions
     # ---------------------------------------------------------------------- #
@@ -362,46 +353,110 @@ class GraspingEnv(BaseEnv):
         """
         super().reconfigure()
 
-        # Creates planner with all articulations/actors in the environment
-        if isinstance(self.agent.robot, sapien.Widget):
-            robot = self.agent.robot.robot
-            self._wrapped_robot = True
-        else:
-            robot = self.agent.robot
-            self._wrapped_robot = False
-        self.planner = get_planner(
-            self,
-            move_group="link_tcp",
-            collision_free_pairs=[("link_base", "ground")],
-        )
-        self.qmask = np.ones(robot.dof, dtype=bool)  # mask to disable joints
-        self.qmask[self.planner.move_group_joint_indices] = False
+        # Save current _scene and agent for collision checking
+        if self.check_collision_during_IK:
+            self._scene_col = self._scene
+            self.agent_col = self.agent
+            self._actors_col = self._actors
+            self._articulations_col = self._articulations
+
+            # Check collision between these actors during init
+            self.check_col_actor_ids = (
+                [l.entity.per_scene_id for a in self._articulations for l in a.links]
+                + [e.per_scene_id for e in self._actors if e.name != 'ground']
+            )
+            super().reconfigure()
+
+    def _check_collision(self, robot_qpos=None, thres=1e-3) -> bool:
+        """Checks whether scene has static collision in _scene_col"""
+        # Set agent and scene objects in _scene_col to match _scene
+        for art_col, art in zip(self._articulations_col, self._articulations):
+            assert art_col.name == art.name, f"{art_col.name=} {art.name=} "
+            art_col.root_pose = art.root_pose
+            art_col.root_velocity = np.zeros(3)
+            art_col.root_angular_velocity = np.zeros(3)
+            art_col.qpos = art.qpos
+            art_col.qvel = np.zeros(art.dof)
+            art_col.qacc = np.zeros(art.dof)
+            art_col.qf = np.zeros(art.dof)
+            for j_col, q in zip(art_col.active_joints, art.qpos):
+                j_col.set_drive_target(q)
+                j_col.set_drive_velocity_target(0.0)
+        for e_col, e in zip(self._actors_col, self._actors):
+            if e_col.name == "ground":
+                continue
+            assert e_col.name == e.name, f"{e_col.name=} {e.name=} "
+            e_col.pose = e.pose
+            # Reset entity velocities
+            comp = e_col.find_component_by_type(physx.PhysxRigidDynamicComponent)
+            comp.linear_velocity = np.zeros(3)
+            comp.angular_velocity = np.zeros(3)
+
+        if robot_qpos is not None:
+            self.agent_col.reset(robot_qpos)
+
+        self._scene_col.step()  # step _scene_col once
+
+        for contact in self._scene_col.get_contacts():
+            for point in contact.points:
+                entity0 = contact.components[0].entity
+                entity1 = contact.components[1].entity
+                if (
+                    entity0.per_scene_id in self.check_col_actor_ids
+                    and entity1.per_scene_id in self.check_col_actor_ids
+                    and (sep := point.separation) < 0
+                    and (impulse_norm := np.linalg.norm(point.impulse)) > thres
+                ):
+                    if self.verbosity_level >= 2:
+                        print(f"[ENV] Contact: {entity0.name=}, {entity1.name=},"
+                              f" {sep = :.3e}, {impulse_norm = :.3e}")
+                    return True
+        return False
 
     def _check_feasible_grasp_pose(self, tcp_pos: np.ndarray) -> bool:
         """Build a grasp pose at tcp_pos, keeping gripper orientation.
         Check if ee_pose is feasible and collision free using IK"""
-        # Update planner objects pose with current environment state
-        update_object_pose(self.planner, self)
-        self.planner.collision_ignored_pairs = []  # does not ignore any collision pairs
+        if self.pmodel is None:
+            if isinstance(self.agent.robot, sapien.Widget):
+                robot = self.agent.robot.robot
+                self._wrapped_robot = True
+            else:
+                robot = self.agent.robot
+                self._wrapped_robot = False
+            self.pmodel = robot.create_pinocchio_model()
+            joint_indices = get_active_joint_indices(self.agent.robot,
+                                                     self.agent.config.arm_joint_names)
+            self.qmask = np.zeros(robot.dof, dtype=bool)
+            self.qmask[joint_indices] = 1
+            self.ee_link_idx = self.tcp.find_component_by_type(
+                physx.PhysxArticulationLinkComponent
+            ).index
 
-        pose_world_ee = Pose(tcp_pos, self.tcp.pose.q)
-        pose_robot_ee = self.agent.robot.pose.inv() * pose_world_ee
+        T_world_ee_poses = [Pose(tcp_pos, self.tcp.pose.q)]
+        T_world_robot = self.agent.robot.pose
+        T_robot_ee_poses = [
+            T_world_robot.inv() * T_we for T_we in T_world_ee_poses
+        ]
 
         cur_robot_qpos = (self.agent.robot.robot.qpos if self._wrapped_robot
                           else self.agent.robot.qpos)
+        for T_robot_ee in T_robot_ee_poses:
+            qpos, success, error = self.pmodel.compute_inverse_kinematics(
+                self.ee_link_idx, T_robot_ee,
+                initial_qpos=cur_robot_qpos,
+                active_qmask=self.qmask,
+                max_iterations=100
+            )
+            if success:
+                qpos = qpos[:self.agent.robot.dof]
 
-        # feasible collision-free IK
-        ik_status, q_goals = self.planner.IK(
-            np.hstack((pose_robot_ee.p, pose_robot_ee.q)),
-            start_qpos=cur_robot_qpos,
-            mask=self.qmask,
-            n_init_qpos=1,  # to match previous pmodel.compute_inverse_kinematics()
-            verbose=self.verbosity_level >= 2,  # print collision info if any exists
-        )
-
-        if ik_status == "Success":
-            self.robot_grasp_qpos = q_goals[0][:self.agent.robot.dof]
-            return True
+            if (
+                success  # feasible IK
+                and not (self.check_collision_during_IK  # check collision
+                         and self._check_collision(qpos))  # has collision
+            ):
+                self.robot_grasp_qpos = qpos
+                return True
         return False
 
     def check_robot_static(self, thresh=0.2):

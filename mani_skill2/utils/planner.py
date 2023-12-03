@@ -34,6 +34,8 @@ class Planner(mplib.Planner):
         self.collision_free_pairs = collision_free_pairs
         self.collision_ignored_pairs: list[tuple[str]] = []
 
+        self._rng = np.random.default_rng(seed=1)
+
         # Mask for joints that have equivalent values (revolute joints with range > 2pi)
         self.equiv_joint_mask = [
             t.startswith("JointModelR") for t in self.joint_types
@@ -67,6 +69,11 @@ class Planner(mplib.Planner):
         if verbose and len(filtered) > 0:
             print_collision_info(filtered, with_contact=True)
         return filtered
+
+    # ----- New methods ----- #
+    def seed(self, seed: int) -> None:
+        """Seed the random number generator"""
+        self._rng = np.random.default_rng(seed)
 
     # ----- Methods with improvements ----- #
     def check_joint_limit(self, qpos: np.ndarray) -> bool:
@@ -238,7 +245,8 @@ class Planner(mplib.Planner):
                     else:
                         q_goals.append(ik_qpos)
 
-            qpos = self.pinocchio_model.get_random_configuration()
+            # qpos = self.pinocchio_model.get_random_configuration()
+            qpos = self._rng.uniform(self.joint_limits[:, 0], self.joint_limits[:, 1])
             qpos[mask] = start_qpos[mask]  # use start_qpos for disabled joints
 
         if len(q_goals) > 0:
@@ -262,6 +270,7 @@ class Planner(mplib.Planner):
                 q2_closer_mask = (
                     q2 < self.joint_limits[:, 1][None, self.equiv_joint_mask]
                 ) & (np.abs(q1 - start_q) > np.abs(q2 - start_q))  # [N, n_equiv_joint]
+                # Convert q_goals to equivalent joint values closest to start_qpos
                 q_goals[:, self.equiv_joint_mask] = np.where(q2_closer_mask, q2, q1)
 
                 q_goals = q_goals[np.linalg.norm(q_goals - start_qpos, axis=1).argmin()]
@@ -317,6 +326,8 @@ class Planner(mplib.Planner):
                 "mplib.pymp.ompl.OMPLPlanner.plan() does not support "
                 f"collision_ignored_pairs yet. Got {self.all_collision_ignored_pairs=}"
             )
+        # TEST: check deterministic self.TOPP()
+        # TEST: check deterministic self.planner.plan()
 
         self.planning_world.set_use_point_cloud(use_point_cloud)
         self.planning_world.set_use_attach(use_attach)
@@ -414,6 +425,7 @@ class Planner(mplib.Planner):
                         * duration: optimal duration of the generated path, np.float64
                         Note that ndof is n_active_dof
         """
+        # TEST: check deterministic self.TOPP()
         self.planning_world.set_use_point_cloud(use_point_cloud)
         self.planning_world.set_use_attach(use_attach)
         current_qpos = np.copy(current_qpos)
@@ -547,8 +559,8 @@ def get_planner(
     collision_free_pairs: list[tuple[str]] = [],
 ) -> mplib.Planner:
     """
-    Creates an mplib.Planner for the robot in env
-    with all articulations/actors as normal_objects
+    Creates an mplib.Planner for the robot in env with all articulations/actors
+    as normal_objects. Should be used to create a new planner in env.reconfigure().
 
     :param move_group: name of robot link to plan. Usually are ["link_eef", "link_tcp"].
     :param collision_free_pairs: always ignore collisions between these link pairs.
