@@ -422,7 +422,7 @@ class RecordEpisodeOnError(gym.Wrapper):
         try:
             obs, rew, terminated, truncated, info = super().step(action)
         except RuntimeError as e:
-            self.flush_trajectory_on_error()
+            self.flush_trajectory_on_error(e)
             raise e
 
         step_data = dict(
@@ -442,7 +442,7 @@ class RecordEpisodeOnError(gym.Wrapper):
 
         return obs, rew, terminated, truncated, info
 
-    def flush_trajectory_on_error(self):
+    def flush_trajectory_on_error(self, error: BaseException):
         assert len(self._episode_data) > 0, f"No episode data: {self._episode_data=}"
 
         from pyrl.utils.data import GDict  # used to dump_hdf5
@@ -461,6 +461,7 @@ class RecordEpisodeOnError(gym.Wrapper):
 
         # Store _env_info_on_error
         if (info_on_error := getattr(self.unwrapped, "_env_info_on_error", None)):
+            info_on_error["error"] = repr(error)
             GDict(info_on_error).to_hdf5(h5_file.create_group("env_info_on_error"))
 
         h5_file.close()
