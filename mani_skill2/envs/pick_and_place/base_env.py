@@ -15,7 +15,6 @@ from mani_skill2.sensors.camera import CameraConfig
 from mani_skill2.utils.sapien_utils import (
     hide_entity,
     look_at,
-    set_articulation_render_material,
     vectorize_pose,
 )
 
@@ -80,7 +79,6 @@ class StationaryManipulationEnv(BaseEnv):
         self.tcp: sapien.Entity = self.agent.robot.find_link_by_name(
             self.agent.config.ee_link_name
         ).entity
-        set_articulation_render_material(self.agent.robot, specular=0.9, roughness=0.3)
 
     def _initialize_agent(self):
         if self.robot_uid == "panda":

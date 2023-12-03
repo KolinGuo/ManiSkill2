@@ -23,10 +23,7 @@ from mani_skill2.envs.sapien_env import BaseEnv
 from mani_skill2.sensors.camera import CameraConfig
 from mani_skill2.utils.camera import resize_obs_images
 from mani_skill2.utils.planner import Planner, get_planner, update_object_pose
-from mani_skill2.utils.sapien_utils import (
-    set_articulation_render_material,
-    vectorize_pose,
-)
+from mani_skill2.utils.sapien_utils import vectorize_pose
 from mani_skill2.utils.visualization.misc import observations_to_images, tile_images
 
 
@@ -295,7 +292,6 @@ class GraspingEnv(BaseEnv):
         self.tcp: sapien.Entity = self.agent.robot.find_link_by_name(
             self.agent.config.ee_link_name
         ).entity
-        set_articulation_render_material(self.agent.robot, specular=0.9, roughness=0.3)
 
     def _initialize_agent(self):
         if self.robot_uid == 'xarm7':
