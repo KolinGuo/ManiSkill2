@@ -3,7 +3,7 @@ numpy
 scipy
 gymnasium>=0.29.1
 sapien
-mplib==0.0.9
+mplib>=0.0.9
 importlib_metadata<5; python_version < '3.8'
 # basic
 h5py
