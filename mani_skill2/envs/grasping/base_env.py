@@ -4,6 +4,7 @@ from collections import OrderedDict
 from typing import Any, SupportsFloat, Type
 
 import cv2
+import mplib
 import numpy as np
 import sapien
 import sapien.physx as physx
@@ -22,7 +23,7 @@ from mani_skill2.agents.utils import get_active_joint_indices
 from mani_skill2.envs.sapien_env import BaseEnv
 from mani_skill2.sensors.camera import CameraConfig
 from mani_skill2.utils.camera import resize_obs_images
-from mani_skill2.utils.planner import Planner, get_planner, update_object_pose
+from mani_skill2.utils.planner import get_planner, update_object_pose
 from mani_skill2.utils.sapien_utils import vectorize_pose
 from mani_skill2.utils.visualization.misc import observations_to_images, tile_images
 
@@ -84,7 +85,7 @@ class GraspingEnv(BaseEnv):
         # NOTE: sapien.PinocchioModel.compute_inverse_kinematics() does not check qlimit
         # switch to mplib.Planner
         # self.pmodel: sapien.PinocchioModel = None  # for _check_feasible_grasp_pose
-        self.planner: Planner = None  # for IK and collision checking
+        self.planner: mplib.Planner = None  # for IK and collision checking
 
         # NOTE: this goal position is feasible for any TCP orientation
         self.tcp_goal_pos = [0.25, -0.25, 0.35]
@@ -327,6 +328,9 @@ class GraspingEnv(BaseEnv):
             raise NotImplementedError(self.robot_uid)
 
     def initialize_episode(self):
+        # Detach cube
+        self.planner.planning_world.detach_object("cube")
+
         super().initialize_episode()
 
         if self.verbosity_level >= 1:
@@ -345,9 +349,8 @@ class GraspingEnv(BaseEnv):
     def _set_episode_rng(self, seed: int):
         """Set the random generator for current episode."""
         super()._set_episode_rng(seed)
-        # Seed the planner as well
-        if self.planner is not None:
-            self.planner.seed(self._episode_seed)
+        # Seed mplib as well
+        mplib.set_global_seed(self._episode_seed)
 
     # ---------------------------------------------------------------------- #
     # Helpful functions
@@ -365,11 +368,8 @@ class GraspingEnv(BaseEnv):
         else:
             robot = self.agent.robot
             self._wrapped_robot = False
-        self.planner = get_planner(
-            self,
-            move_group="link_tcp",
-            collision_free_pairs=[("link_base", "ground")],
-        )
+        self.planner = get_planner(self, move_group="link_tcp")
+        self.planner.acm.set_entry("link_base", "ground", True)
         self.qmask = np.ones(robot.dof, dtype=bool)  # mask to disable joints
         self.qmask[self.planner.move_group_joint_indices] = False
 
@@ -378,7 +378,6 @@ class GraspingEnv(BaseEnv):
         Check if ee_pose is feasible and collision free using IK"""
         # Update planner objects pose with current environment state
         update_object_pose(self.planner, self)
-        self.planner.collision_ignored_pairs = []  # does not ignore any collision pairs
 
         pose_world_ee = Pose(tcp_pos, self.tcp.pose.q)
         pose_robot_ee = self.agent.robot.pose.inv() * pose_world_ee

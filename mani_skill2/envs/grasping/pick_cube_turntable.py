@@ -89,7 +89,6 @@ class PickCubeTurntableEnv(GraspingEnv):
         """
         # Update planner objects pose with current environment state
         update_object_pose(self.planner, self)
-        self.planner.collision_ignored_pairs = []  # does not ignore any collision pairs
 
         initial_qpos = self.agent.robot.qpos
         pose_cam_ee = Pose(np.array(
@@ -308,8 +307,22 @@ class PickCubeTurntableEnv(GraspingEnv):
 
         # Update planner objects pose with current environment state
         update_object_pose(self.planner, self)
-        self.planner.collision_ignored_pairs = [("cube", '*')]  # ignore cube collisions
-
+        attach_pose = self.tcp.pose.inv() * self.cube.pose
+        self.planner.planning_world.attach_object(
+            "cube",
+            "robot",
+            self.planner.move_group_link_id,
+            np.hstack((attach_pose.p, attach_pose.q)),
+            touch_links=[
+                "xarm_gripper_base_link",
+                "left_outer_knuckle",
+                "left_finger",
+                "left_inner_knuckle",
+                "right_outer_knuckle",
+                "right_finger",
+                "right_inner_knuckle",
+            ],
+        )
         # feasible collision-free IK
         ik_status, q_goal = self.planner.IK(
             np.hstack((target_tcp_pose.p, target_tcp_pose.q)),
