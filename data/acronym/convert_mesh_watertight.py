@@ -1,15 +1,19 @@
-import os
 import re
 import shutil
-from pathlib import Path
 from multiprocessing import Process, current_process
+from pathlib import Path
 
 import trimesh
 from do_coacd import do_coacd
 
 
-def process_meshes(grasp_h5_paths: list[Path], mesh_dir: Path,
-                   output_dir: Path, script_dir: Path = None, coacd_params={}):
+def process_meshes(
+    grasp_h5_paths: list[Path],
+    mesh_dir: Path,
+    output_dir: Path,
+    script_dir: Path = None,
+    coacd_params={},
+):
     """Run manifold & simplify on meshes and copy corresponding *.mtl files"""
     texture_dir = mesh_dir.parents[1] / "models-textures/textures"
     assert texture_dir.is_dir(), f"{texture_dir=}"
@@ -32,11 +36,13 @@ def process_meshes(grasp_h5_paths: list[Path], mesh_dir: Path,
         out_mesh_path = save_path / (
             "collision.coacd.ply" if use_coacd else "collision.obj"
         )
-        assert not (save_path / "acronym_grasps.h5").is_file(), \
-            f"Already processed mesh for {shapenetid=}"
+        assert not (
+            save_path / "acronym_grasps.h5"
+        ).is_file(), f"Already processed mesh for {shapenetid=}"
 
         # Clear directory content
-        shutil.rmtree(save_path)
+        if save_path.is_dir():
+            shutil.rmtree(save_path)
         save_path.mkdir()
 
         # Copy mesh and meterial file
@@ -44,9 +50,12 @@ def process_meshes(grasp_h5_paths: list[Path], mesh_dir: Path,
         shutil.copy(mesh_mtl_path, save_path)
 
         # Copy texture files
-        mtl_lines = mesh_mtl_path.open("r").readlines() + mesh_path.open("r").readlines()
-        texture_file_names = set([res[0] for line in mtl_lines
-                                  if (res := re.findall("^.* (.*.jpg)", line))])
+        mtl_lines = (
+            mesh_mtl_path.open("r").readlines() + mesh_path.open("r").readlines()
+        )
+        texture_file_names = set(
+            [res[0] for line in mtl_lines if (res := re.findall("^.* (.*.jpg)", line))]
+        )
         for texture_name in texture_file_names:
             shutil.copy(texture_dir / texture_name, save_path)
 
@@ -85,20 +94,35 @@ if __name__ == "__main__":
 
     root_dir = Path(__file__).resolve().parent
     default_grasp_dir = root_dir / "acronym_grasps"
-    default_model_obj_dir = root_dir / "ShapeNetSem-archive/ShapeNetSem-backup/models-OBJ/models"
+    default_model_obj_dir = (
+        root_dir / "ShapeNetSem-archive/ShapeNetSem-backup/models-OBJ/models"
+    )
     default_output_dir = root_dir / "models"
     # default_script_dir = root_dir / "Manifold/build"
 
-    parser.add_argument("--grasp-dir", type=str, default=default_grasp_dir,
-                        help="Directory of ACRONYM grasps")
-    parser.add_argument("--mesh-dir", type=str, default=default_model_obj_dir,
-                        help="Directory models-OBJ path")
-    parser.add_argument("--output-dir", type=str, default=default_output_dir,
-                        help="Output directory path")
+    parser.add_argument(
+        "--grasp-dir",
+        type=str,
+        default=default_grasp_dir,
+        help="Directory of ACRONYM grasps",
+    )
+    parser.add_argument(
+        "--mesh-dir",
+        type=str,
+        default=default_model_obj_dir,
+        help="Directory models-OBJ path",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=default_output_dir,
+        help="Output directory path",
+    )
     # parser.add_argument("--script-dir", type=str, default=default_script_dir,
     #                     help="Directory of scripts to create watertight meshes")
-    parser.add_argument("--num-proc", type=int, default=10,
-                        help="Number of parallel processes to start")
+    parser.add_argument(
+        "--num-proc", type=int, default=10, help="Number of parallel processes to start"
+    )
 
     args = parser.parse_args()
 
@@ -126,27 +150,32 @@ if __name__ == "__main__":
         num_grasp_objs = len(grasp_obj_paths)
         print(f"Found {num_grasp_objs} unprocessed grasping object files")
 
-    num_objs_each = (num_grasp_objs // args.num_proc)
+    num_proc = min(num_grasp_objs, args.num_proc)
+    q, r = divmod(num_grasp_objs, num_proc)
     processes = []
-    for i in range(args.num_proc):
-        if i == args.num_proc-1:
-            obj_paths_proc = grasp_obj_paths[num_objs_each*i:]
-        else:
-            obj_paths_proc = grasp_obj_paths[num_objs_each*i:num_objs_each*(i+1)]
+    for i in range(num_proc):
+        obj_paths_proc = grasp_obj_paths[
+            i * q + min(i, r) : (i + 1) * q + min(i + 1, r)
+        ]
         processes.append(
-            Process(target=process_meshes, name=f"Proc {i}",
-                    args=(
-                        obj_paths_proc,
-                        mesh_dir,
-                        output_dir,
-                        # script_dir
-                    ),
-                    kwargs=dict(coacd_params={
+            Process(
+                target=process_meshes,
+                name=f"Proc {i}",
+                args=(
+                    obj_paths_proc,
+                    mesh_dir,
+                    output_dir,
+                    # script_dir
+                ),
+                kwargs=dict(
+                    coacd_params={
                         "threshold": 0.03,
                         "max_convex_hull": 0,
                         "preprocess_resolution": 100,
                         "verbose": True,
-                    }))
+                    }
+                ),
+            )
         )
 
     print(f"Starting {len(processes)} processes")
