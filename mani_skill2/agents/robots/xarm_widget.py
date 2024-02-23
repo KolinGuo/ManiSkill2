@@ -8,23 +8,31 @@ import sapien
 import sapien.physx as physx
 from sapien.utils import Viewer
 
+from mani_skill2 import format_path
+
 
 class XArm7(sapien.Widget):
     def __init__(self, asset_dir=os.path.dirname(__file__)):
-        self.robot: physx.PhysxArticulation = None
-        self.init_qpos: np.ndarray = None  # without mimicked joints
-        self.init_all_qpos: np.ndarray = None  # includes mimicked joints
+        self.robot: physx.PhysxArticulation = None  # type: ignore
+        self.init_qpos: np.ndarray = None  # without mimicked joints  # type: ignore
+        self.init_all_qpos: np.ndarray = (
+            None  # includes mimicked joints  # type: ignore
+        )
         self.asset_dir = asset_dir
         self.urdf_path = os.path.join(self.asset_dir, "xarm7_d435.urdf")
         self.srdf_path = os.path.join(self.asset_dir, "xarm7_d435.srdf")
 
     def load(self, scene: sapien.Scene) -> None:
         if not scene.physx_system.config.enable_tgs:
-            warnings.warn("TGS is not enabled in scene. TGS is recommended "
-                          "for simulating loop joints.")
+            warnings.warn(
+                "TGS is not enabled in scene. TGS is recommended "
+                "for simulating loop joints."
+            )
         if (solver_iter := scene.physx_system.config.solver_iterations) < 15:
-            warnings.warn(f"Solver iteration ({solver_iter}) of this scene "
-                          "is probably too small for simulating XArm")
+            warnings.warn(
+                f"Solver iteration ({solver_iter}) of this scene "
+                "is probably too small for simulating XArm"
+            )
 
         loader = scene.create_urdf_loader()
         loader.set_material(0.3, 0.3, 0.0)
@@ -56,20 +64,20 @@ class XArm7(sapien.Widget):
 
         self.init_qpos = np.array([0, 0, 0, np.pi / 3, 0, np.pi / 3, -np.pi / 2, 0.85])
         self.init_all_qpos = np.hstack((self.init_qpos, [self.init_qpos[-1]] * 5))
-        self.robot.set_qpos(self.init_all_qpos)
-        self.robot.set_qvel(np.zeros(13))
-        self.set_arm_target(self.init_qpos[:-1])
+        self.robot.set_qpos(self.init_all_qpos)  # type: ignore
+        self.robot.set_qvel(np.zeros(13))  # type: ignore
+        self.set_arm_target(self.init_qpos[:-1])  # type: ignore
         self.set_gripper_target(self.init_qpos[-1])
 
     def _create_drives(self, scene: sapien.Scene) -> None:
         """Create drive joints and gear joint for gripper"""
-        self.robot.set_qpos(np.zeros(self.robot.dof))
+        self.robot.set_qpos(np.zeros(self.robot.dof))  # type: ignore
 
         lik = self.robot.find_link_by_name("left_inner_knuckle")
         lok = self.robot.find_link_by_name("left_outer_knuckle")
         lf = self.robot.find_link_by_name("left_finger")
         T_pw = lf.entity_pose.inv().to_transformation_matrix()
-        p_w = lf.entity_pose.p + lik.entity_pose.p - lok.entity_pose.p
+        p_w = lf.entity_pose.p + lik.entity_pose.p - lok.entity_pose.p  # type: ignore
         T_fw = lik.entity_pose.inv().to_transformation_matrix()
         p_f = T_fw[:3, :3] @ p_w + T_fw[:3, 3]
         p_p = T_pw[:3, :3] @ p_w + T_pw[:3, 3]
@@ -82,7 +90,7 @@ class XArm7(sapien.Widget):
         rok = self.robot.find_link_by_name("right_outer_knuckle")
         rf = self.robot.find_link_by_name("right_finger")
         T_pw = rf.entity_pose.inv().to_transformation_matrix()
-        p_w = rf.entity_pose.p + rik.entity_pose.p - rok.entity_pose.p
+        p_w = rf.entity_pose.p + rik.entity_pose.p - rok.entity_pose.p  # type: ignore
         T_fw = rik.entity_pose.inv().to_transformation_matrix()
         p_f = T_fw[:3, :3] @ p_w + T_fw[:3, 3]
         p_p = T_pw[:3, :3] @ p_w + T_pw[:3, 3]
@@ -91,7 +99,7 @@ class XArm7(sapien.Widget):
         drive.set_limit_y(0, 0)
         drive.set_limit_z(0, 0)
 
-        gear = scene.create_gear(rok, sapien.Pose(), lok, sapien.Pose(q=[0, 0, 0, 1]))
+        gear = scene.create_gear(rok, sapien.Pose(), lok, sapien.Pose(q=[0, 0, 0, 1]))  # type: ignore
         gear.gear_ratio = -1
         gear.enable_hinges()
 
@@ -129,8 +137,10 @@ class XArm7(sapien.Widget):
         if self.robot is not None:
             return getattr(self.robot, name)
         else:
-            raise RuntimeError(f"{self} is not loaded yet. "
-                               f"Please call scene.load_widget() on it first")
+            raise RuntimeError(
+                f"{self} is not loaded yet. "
+                f"Please call scene.load_widget() on it first"
+            )
 
     # ----- mplib.Planner ----- #
     def get_planner(self, move_group: str = "link_tcp") -> mplib.Planner:
@@ -157,11 +167,13 @@ class XArm7(sapien.Widget):
     def get_dof(self) -> int:
         """Robot degree of freedom"""
         return 8
+
     dof = property(get_dof)
 
     def get_active_joints(self) -> List[physx.PhysxArticulationJoint]:
         """Robot active joints"""
         return self.robot.active_joints[:8]
+
     active_joints = property(get_active_joints)
 
     def get_qpos(self) -> np.ndarray:
@@ -171,7 +183,8 @@ class XArm7(sapien.Widget):
     def set_qpos(self, qpos: Sequence[float]) -> None:
         if isinstance(qpos, np.ndarray):
             qpos = qpos.tolist()
-        self.robot.qpos = qpos + [qpos[-1]] * 5
+        self.robot.qpos = qpos + [qpos[-1]] * 5  # type: ignore
+
     qpos = property(get_qpos, set_qpos)
 
     def get_qvel(self) -> np.ndarray:
@@ -181,7 +194,8 @@ class XArm7(sapien.Widget):
     def set_qvel(self, qvel: Sequence[float]) -> None:
         if isinstance(qvel, np.ndarray):
             qvel = qvel.tolist()
-        self.robot.qvel = qvel + [qvel[-1]] * 5
+        self.robot.qvel = qvel + [qvel[-1]] * 5  # type: ignore
+
     qvel = property(get_qvel, set_qvel)
 
     def get_qacc(self) -> np.ndarray:
@@ -191,7 +205,8 @@ class XArm7(sapien.Widget):
     def set_qacc(self, qacc: Sequence[float]) -> None:
         if isinstance(qacc, np.ndarray):
             qacc = qacc.tolist()
-        self.robot.qacc = qacc + [qacc[-1]] * 5
+        self.robot.qacc = qacc + [qacc[-1]] * 5  # type: ignore
+
     qacc = property(get_qacc, set_qacc)
 
     def get_qf(self) -> np.ndarray:
@@ -200,21 +215,24 @@ class XArm7(sapien.Widget):
 
     def set_qf(self, qf: Sequence[float]) -> None:
         if len(qf) == 13:  # handle set_qf using results from compute_passive_force
-            self.robot.qf = qf
+            self.robot.qf = qf  # type: ignore
             return
         if isinstance(qf, np.ndarray):
             qf = qf.tolist()
-        self.robot.qf = qf + [qf[-1]] * 5
+        self.robot.qf = qf + [qf[-1]] * 5  # type: ignore
+
     qf = property(get_qf, set_qf)
 
     def get_qlimit(self) -> np.ndarray:
         """Robot joint limits"""
         return self.robot.qlimit[:8]
+
     qlimit = property(get_qlimit)
 
     def get_qlimits(self) -> np.ndarray:
         """Robot joint limits (exactly the same as get_qlimit)"""
         return self.robot.qlimits[:8]
+
     qlimits = property(get_qlimits)
 
 
@@ -227,34 +245,56 @@ def main():
     scene.load_widget_from_package("sapien_demo_arena", "DemoArena")
     scene.set_timestep(1 / 1200)
 
-    xarm = XArm7()
+    xarm = XArm7(asset_dir=format_path("{PACKAGE_ASSET_DIR}/descriptions/"))
     scene.load_widget(xarm)
 
     viewer = Viewer()
     viewer.set_scene(scene)
 
     # ----- XArm no gravity ----- #
-    xarm.set_qpos([9.216433e-07, 0.3019557, 7.410042e-06, 0.8741246,
-                   4.4826098e-05, 0.5723556, -1.5709692] + [0.85])
-    xarm.set_arm_target([9.216433e-07, 0.3019557, 7.410042e-06, 0.8741246,
-                         4.4826098e-05, 0.5723556, -1.5709692,])
+    xarm.set_qpos(
+        [
+            9.216433e-07,
+            0.3019557,
+            7.410042e-06,
+            0.8741246,
+            4.4826098e-05,
+            0.5723556,
+            -1.5709692,
+        ]
+        + [0.85]
+    )
+    xarm.set_arm_target([
+        9.216433e-07,
+        0.3019557,
+        7.410042e-06,
+        0.8741246,
+        4.4826098e-05,
+        0.5723556,
+        -1.5709692,
+    ])
     xarm.set_gripper_target(0.85)
 
     b = scene.create_actor_builder()
     size = [0.015, 0.015, 0.015]
-    b.add_box_collision(half_size=size, density=1000)
-    b.add_box_visual(half_size=size)
+    b.add_box_collision(half_size=size, density=1000)  # type: ignore
+    b.add_box_visual(half_size=size)  # type: ignore
     box = b.build()
-    box.set_pose(sapien.Pose([0.420, -0.2, 0.015]))
+    box.set_pose(sapien.Pose([0.420, -0.2, 0.015]))  # type: ignore
     drive = scene.create_drive(None, sapien.Pose(), box, sapien.Pose())
     drive.set_drive_property_y(1e2, 1e2)
     # drive.drive_target = sapien.Pose([0.425, 0.07, 0.015])
     drive.set_drive_velocity_target([0, 1, 0], [0, 0, 0])
 
-    camera = scene.add_camera(name="test", width=3693, height=2806,
-                              fovy=1.57, near=0.1, far=1e+03)
-    camera.set_local_pose(sapien.Pose([-0.345796, -0.305399, 0.848966],
-                                      [0.926578, 0.00304896, 0.37601, -0.00779426]))
+    camera = scene.add_camera(
+        name="test", width=3693, height=2806, fovy=1.57, near=0.1, far=1e03
+    )
+    camera.set_local_pose(
+        sapien.Pose(
+            [-0.345796, -0.305399, 0.848966],  # type: ignore
+            [0.926578, 0.00304896, 0.37601, -0.00779426],  # type: ignore
+        )
+    )
 
     viewer.paused = True
     count = 0
